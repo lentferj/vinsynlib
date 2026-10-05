@@ -158,3 +158,183 @@ def test_several_files_can_be_checked_at_once(tmp_path: Any) -> None:
         own=["emorphed", "emu"],
     )
     assert len(found) == 2
+
+
+# --- the --scan policy -------------------------------------------------------
+
+
+class FakeDevice:
+    def __init__(self, port: str) -> None:
+        self.port = port
+
+
+def test_the_remembered_port_is_tried_first_and_nothing_else() -> None:
+    """One Identity Request, not one per port on the machine."""
+    probes: list[tuple[str, str]] = []
+    sweeps: list[str] = []
+
+    def probe(send: str, recv: str) -> FakeDevice:
+        probes.append((send, recv))
+        return FakeDevice(send)
+
+    def sweep(on_try: Any = None) -> FakeDevice:
+        sweeps.append("swept")
+        return FakeDevice("found")
+
+    device = midi.open_remembered_or_swept(
+        probe=probe,
+        sweep=sweep,
+        remembered=("Midi Out: XV", "Midi In: XV"),
+    )
+
+    assert device.port == "Midi Out: XV"
+    assert probes == [("Midi Out: XV", "Midi In: XV")]
+    assert sweeps == []
+
+
+def test_scan_asks_for_the_sweep_even_with_a_remembered_port() -> None:
+    """This is what the flag is for: the unit moved, USB renumbered the
+    client, and the saved name no longer answers."""
+    probes: list[tuple[str, str]] = []
+    sweeps: list[str] = []
+
+    def probe(send: str, recv: str) -> FakeDevice:
+        probes.append((send, recv))
+        return FakeDevice(send)
+
+    def sweep(on_try: Any = None) -> FakeDevice:
+        sweeps.append("swept")
+        return FakeDevice("found")
+
+    device = midi.open_remembered_or_swept(
+        probe=probe,
+        sweep=sweep,
+        remembered=("stale", "stale"),
+        scan=True,
+    )
+
+    assert device.port == "found"
+    assert probes == []
+    assert sweeps == ["swept"]
+
+
+def test_nothing_remembered_means_a_sweep() -> None:
+    sweeps: list[str] = []
+
+    def probe(send: str, recv: str) -> FakeDevice:
+        raise AssertionError("nothing was remembered; do not probe a name")
+
+    def sweep(on_try: Any = None) -> FakeDevice:
+        sweeps.append("swept")
+        return FakeDevice("found")
+
+    device = midi.open_remembered_or_swept(probe=probe, sweep=sweep)
+    assert device.port == "found"
+    assert sweeps == ["swept"]
+
+
+def test_a_remembered_port_that_does_not_answer_falls_back_to_a_sweep() -> (
+    None
+):
+    def probe(send: str, recv: str) -> FakeDevice:
+        raise midi.DeviceError("nothing came back")
+
+    def sweep(on_try: Any = None) -> FakeDevice:
+        return FakeDevice("found")
+
+    device = midi.open_remembered_or_swept(
+        probe=probe, sweep=sweep, remembered=("gone", "gone")
+    )
+    assert device.port == "found"
+
+
+def test_the_fallback_says_so_rather_than_pretending_to_be_fast() -> None:
+    """A silent sweep here would look exactly like the fast path having
+    worked, which is how a slow launch becomes the normal one."""
+
+    def probe(send: str, recv: str) -> FakeDevice:
+        raise midi.DeviceError("nothing came back")
+
+    def sweep(on_try: Any = None) -> FakeDevice:
+        return FakeDevice("found")
+
+    said: list[str] = []
+
+    midi.open_remembered_or_swept(
+        probe=probe,
+        sweep=sweep,
+        remembered=("gone", "gone"),
+        on_try=said.append,
+    )
+    assert said
+    assert "did not answer" in said[0]
+
+
+def test_the_fast_path_reports_nothing() -> None:
+    """One Identity Request, and silence about it."""
+
+    def probe(send: str, recv: str) -> FakeDevice:
+        return FakeDevice(send)
+
+    said: list[str] = []
+
+    def sweep(on_try: Any = None) -> FakeDevice:
+        return FakeDevice("x")
+
+    midi.open_remembered_or_swept(
+        probe=probe,
+        sweep=sweep,
+        remembered=("ok", "ok"),
+        on_try=said.append,
+    )
+    assert said == []
+
+
+def test_what_the_sweep_learned_is_remembered() -> None:
+    learned: list[FakeDevice] = []
+
+    def probe(send: str, recv: str) -> FakeDevice:
+        return FakeDevice(send)
+
+    def sweep(on_try: Any = None) -> FakeDevice:
+        return FakeDevice("found")
+
+    midi.open_remembered_or_swept(
+        probe=probe,
+        sweep=sweep,
+        scan=True,
+        remember=learned.append,
+    )
+    assert [d.port for d in learned] == ["found"]
+
+
+def test_a_probe_failure_is_not_swallowed_when_the_sweep_also_fails() -> None:
+    """The sweep's own error is what the user needs to see, not the stale
+    remembered port's."""
+
+    def probe(send: str, recv: str) -> FakeDevice:
+        raise midi.DeviceError("stale")
+
+    def sweep(on_try: Any = None) -> FakeDevice:
+        raise midi.DeviceNotFound("no unit answered") from None
+
+    with pytest.raises(midi.DeviceNotFound, match="no unit answered"):
+        midi.open_remembered_or_swept(
+            probe=probe, sweep=sweep, remembered=("stale", "stale")
+        )
+
+
+def test_an_os_error_from_the_probe_also_falls_back() -> None:
+    """A disconnected interface is an OSError, not a DeviceError, and it is
+    the most common reason a remembered port stops answering."""
+
+    def probe(send: str, recv: str) -> FakeDevice:
+        raise OSError("no such device")
+
+    def sweep(on_try: Any = None) -> FakeDevice:
+        return FakeDevice("found")
+
+    device = midi.open_remembered_or_swept(
+        probe=probe, sweep=sweep, remembered=("gone", "gone")
+    )
+    assert device.port == "found"

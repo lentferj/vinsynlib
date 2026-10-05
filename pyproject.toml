@@ -84,8 +84,16 @@ max-complexity = 10
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "PLR2004", "PLC0415", "RUF012"]
 # The lazy rtmidi import is the point: an offline command must work on a
-# machine with no MIDI stack at all.
-"src/vinsynlib/midi.py" = ["PLC0415", "SIM105", "S110"]
+# machine with no MIDI stack at all. `install_clean_exit` swallows
+# deliberately: a handler that fails while tearing down must not replace
+# the failure the user was already being told about.
+#
+# PLR0913: `open_remembered_or_swept` takes one keyword per step of the
+# policy -- what to try, what to sweep with, what was remembered, whether
+# to ignore it, where to record the answer, how to report progress. Six
+# keyword-only arguments that each say one thing beats a policy object
+# with six fields that each say one thing.
+"src/vinsynlib/midi.py" = ["PLC0415", "SIM105", "S110", "PLR0913"]
 # `add_common_arguments` is a keyword-only bag of "does this tool have the
 # concept", one keyword per flag in the spec. Splitting it up would mean
 # splitting the spec.

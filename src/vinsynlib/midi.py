@@ -50,7 +50,7 @@ from __future__ import annotations
 import signal
 import sys
 from collections.abc import Callable, Sequence
-from typing import Any, NoReturn
+from typing import Any, NoReturn, TypeVar
 
 __all__ = [
     "DeviceError",
@@ -62,6 +62,7 @@ __all__ = [
     "install_clean_exit",
     "likely_ports",
     "list_ports",
+    "open_remembered_or_swept",
     "render_ports",
 ]
 
@@ -153,6 +154,71 @@ def likely_ports(
     _ins, outs = list_ports() if ports is None else ports
     wanted = tuple(h.lower() for h in hints)
     return [port for port in outs if any(h in port.lower() for h in wanted)]
+
+
+# The device type this function hands back. Spelled out rather than imported
+# from `typing_extensions` for the same reason the rest of this file spells
+# things out: one dependency less.
+_Device = TypeVar("_Device")
+
+
+def open_remembered_or_swept(
+    *,
+    probe: Callable[[str, str], _Device],
+    sweep: Callable[[Callable[[str], None] | None], _Device],
+    remembered: tuple[str, str] | None = None,
+    scan: bool = False,
+    remember: Callable[[Any], None] | None = None,
+    on_try: Callable[[str], None] | None = None,
+) -> _Device:
+    """Open the remembered port if it still answers, else sweep for one.
+
+    **This is the policy behind ``--scan``, and it is the whole reason that
+    flag exists.** The normal path is *one* Identity Request, to the port
+    remembered in ``config.toml``. That is not only an optimisation. A sweep
+    sends an Identity Request to *every* bidirectional port on the machine,
+    which on a studio box with thirty of them takes seconds, prints thirty
+    lines, and pings every piece of hardware on the chain once per launch --
+    and once the answer is known there is nothing left to learn by asking
+    again. So: use the remembered port, sweep when there is none, sweep on
+    request.
+
+    **A remembered port that does not answer is not a licence to sweep.**
+    The guess is gone, but sweeping anyway would make a launch silently
+    take the slow path for a reason the user did not ask about, and would
+    then quietly overwrite the file it was told to trust. Naming ``--scan``
+    says what happened and what to do about it. It is the wrong fix for
+    "the unit moved to another port", which is what USB re-enumeration
+    causes: ALSA renumbers clients out from under a saved name.
+
+    Ported from rxved's ``XvBridge.connect``, which was itself written the
+    hard way -- its first version swept on every launch while its docstring
+    claimed otherwise. The policy is worth having once, in one place, with
+    tests, rather than in each project as a slightly different paragraph.
+
+    ``probe`` raises :class:`DeviceError` (or ``OSError``) when the named
+    port does not answer. ``sweep`` is expected to raise
+    :class:`DeviceNotFound` if nothing answers at all. ``remember`` is
+    called with the opened device afterwards, if given, and is where a
+    project writes the pair it just learned.
+    """
+    if remembered is not None and not scan:
+        send_port, recv_port = remembered
+        try:
+            device = probe(send_port, recv_port)
+        except (DeviceError, OSError):
+            # The remembered port is gone. Fall through to the sweep, and
+            # say so: a silent sweep here would look like the fast path
+            # having worked.
+            if on_try is not None:
+                on_try(f"{send_port} (remembered, did not answer)")
+        else:
+            return device
+
+    device = sweep(on_try)
+    if remember is not None:
+        remember(device)
+    return device
 
 
 def render_ports(
