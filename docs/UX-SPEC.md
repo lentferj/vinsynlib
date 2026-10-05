@@ -287,6 +287,36 @@ forgetting a preference beats refusing to run. Anything else is a bug and
 should be heard -- one tool's first attempt caught everything and so never
 noticed it was raising `NameError` on every call and writing nothing.
 
+### How a launch finds the unit
+
+This is the `--scan` policy, and every browser implements it the same way.
+
+**The normal path is one Identity Request, to the remembered port.** Not
+just an optimisation. A sweep sends an Identity Request to *every*
+bidirectional port on the machine, which on a studio box with thirty of
+them takes seconds, prints thirty lines, and pings every piece of hardware
+on the chain once per launch -- and once the answer is known there is
+nothing left to learn by asking again.
+
+**Use the remembered port, sweep when there is none, sweep on request.**
+`--scan` is that request.
+
+**A remembered port that does not answer is not a licence to sweep.** The
+guess is gone, but sweeping anyway would make a launch silently take the
+slow path for a reason the user did not ask about, and would then quietly
+overwrite the file it was told to trust. Naming `--scan` says what happened
+and what to do about it. It is the wrong answer to "the unit moved to
+another port", which is what USB re-enumeration causes: ALSA renumbers
+clients out from under a saved name.
+
+**When it does fall back, it says so.** A silent fallback is
+indistinguishable, from the terminal, from the fast path having worked --
+which is how a slow launch quietly becomes the normal one.
+
+`vinsynlib.midi.open_remembered_or_swept` is this policy, written and
+tested once. It was a paragraph in rxved, a docstring in x5ded saying it
+had been ported from rxved, and nothing at all in the other seven.
+
 ---
 
 ## 5. Checks
