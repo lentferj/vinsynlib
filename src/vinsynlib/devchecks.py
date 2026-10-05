@@ -43,10 +43,11 @@ import sys
 from collections.abc import Iterable, Iterator, Sequence
 
 __all__ = [
+    "FAMILY_THIRD_PARTY",
+    "check_foreign_imports",
     "config_saves_without_path",
     "foreign_imports",
     "iter_test_sources",
-    "own_namespaces",
 ]
 
 #: Third-party modules every project in the family legitimately imports.

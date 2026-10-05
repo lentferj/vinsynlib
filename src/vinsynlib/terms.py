@@ -48,10 +48,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 __all__ = [
+    "ALLOWED_CONTAINER_WORDS",
+    "ALLOWED_SOUND_WORDS",
     "FAMILY",
+    "REGISTRY",
     "Terminology",
     "for_app",
     "plural",
+    "register",
 ]
 
 
