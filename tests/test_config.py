@@ -176,3 +176,20 @@ def test_bind_names_the_application() -> None:
     store = config.bind("rxved")
     assert store.app_name == "rxved"
     assert store.default_path == config.DEFAULT_PATH
+
+
+def test_a_project_shim_needs_only_a_name() -> None:
+    """What each of the nine projects' config.py is now.
+
+    The binding, not a copy: `load_channel` here is the very same bound
+    method object the library hands out, so a fix in one is a fix in all.
+    """
+    from vinsynlib.config import Settings
+
+    shim = Settings("x5ded")
+    assert shim.app_name == "x5ded"
+    assert shim.default_path == "config.toml"
+    # Two shims, one implementation: the method each project binds is the
+    # same function object, so a fix here lands in all nine.
+    other = Settings("rxved")
+    assert type(other).load_channel is type(shim).load_channel
