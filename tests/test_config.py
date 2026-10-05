@@ -193,3 +193,60 @@ def test_a_project_shim_needs_only_a_name() -> None:
     # same function object, so a fix here lands in all nine.
     other = Settings("rxved")
     assert type(other).load_channel is type(shim).load_channel
+
+
+# --- the port pair, and the device-ID ranges ---------------------------------
+
+
+def test_the_pair_round_trips(tmp_path: Any) -> None:
+    store = config.Settings("rxved", str(tmp_path / "config.toml"))
+    store.save_ports("Midi Out: XV", "Midi In: XV")
+    assert store.load_ports() == ("Midi Out: XV", "Midi In: XV")
+
+
+def test_half_a_pair_is_no_pair(tmp_path: Any) -> None:
+    """Three tools open one port and read the other from the same name, and
+    treat an output-only memory as nothing remembered rather than half."""
+    store = config.Settings("rxved", str(tmp_path / "config.toml"))
+    store.save_port("Midi Out: XV")
+    assert store.load_ports() is None
+
+
+def test_saving_the_pair_keeps_the_channel(tmp_path: Any) -> None:
+    store = config.Settings("eosed", str(tmp_path / "config.toml"))
+    store.save_channel(3)
+    store.save_ports("out", "in")
+    assert store.load_channel() == 3
+    assert store.load_ports() == ("out", "in")
+
+
+def test_a_roland_device_id_is_refused_outside_its_panel_range(
+    tmp_path: Any,
+) -> None:
+    """17-32 on the panel is 0x10-0x1F on the wire. They overlap, and a value
+    from the wrong one is answered with silence -- so returning 5 would hand
+    back something the user cannot confirm on the hardware."""
+    path = tmp_path / "config.toml"
+    path.write_text("device_id = 5\n", encoding="utf-8")
+    store = config.Settings("rxved", str(path))
+
+    assert store.load_device_id(minimum=17, maximum=32) is None
+    assert store.load_device_id() == 5
+
+
+@pytest.mark.parametrize("value", [17, 20, 32])
+def test_a_roland_device_id_in_range_is_returned(
+    tmp_path: Any, value: int
+) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(f"device_id = {value}\n", encoding="utf-8")
+    store = config.Settings("rxved", str(path))
+    assert store.load_device_id(minimum=17, maximum=32) == value
+
+
+def test_the_default_range_is_the_whole_byte(tmp_path: Any) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text("device_id = 200\n", encoding="utf-8")
+    assert config.Settings("x5ded", str(path)).load_device_id() is None
+    path.write_text("device_id = 126\n", encoding="utf-8")
+    assert config.Settings("x5ded", str(path)).load_device_id() == 126

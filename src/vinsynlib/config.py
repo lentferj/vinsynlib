@@ -241,9 +241,42 @@ class Settings:
     def save_recv_port(self, port: str, path: str | None = None) -> None:
         self.update(path, recv_port=str(port))
 
+    def load_ports(self, path: str | None = None) -> tuple[str, str] | None:
+        """Both remembered ports as a pair, or None.
+
+        Only when *both* are known. A half-remembered pair is not a pair:
+        three of the tools in this family open one port and read the other
+        from the same name, and treat an output-only or input-only memory
+        as nothing remembered at all rather than as half of what they need.
+        """
+        data = self.read(path)[0]
+        send = data.get("port")
+        recv = data.get("recv_port")
+        if isinstance(send, str) and send and isinstance(recv, str) and recv:
+            return send, recv
+        return None
+
+    def save_ports(
+        self, send_port: str, recv_port: str, path: str | None = None
+    ) -> None:
+        """Remember both ports at once, in one write to the file.
+
+        One write rather than two because the file is rewritten whole every
+        time: writing ``port`` and then ``recv_port`` separately reads and
+        rewrites between them, and a failure in between leaves the first
+        saved and the second lost.
+        """
+        self.update(path, port=str(send_port), recv_port=str(recv_port))
+
     # --- device id -----------------------------------------------------------
 
-    def load_device_id(self, path: str | None = None) -> int | None:
+    def load_device_id(
+        self,
+        path: str | None = None,
+        *,
+        minimum: int = 0,
+        maximum: int = MAX_DEVICE_ID,
+    ) -> int | None:
         """The device ID last used, or None.
 
         ``isinstance(True, int)`` is True, so a hand-edited
@@ -251,11 +284,20 @@ class Settings:
         and the wrong one. A wrong device ID is answered with silence by
         these instruments, which is the failure mode that hides behind
         every other.
+
+        ``minimum``/``maximum`` because a device ID is not one range
+        everywhere. It is a byte for most of these instruments, 0-127, and
+        on a Roland XV-2020 the synth *displays* it as the panel number
+        17-32, which is the wire byte 0x10-0x1F plus one. That tool
+        therefore checks its own range, and it is right to: a value of 5
+        there is not a device ID that happens to be unused, it is a value
+        its own front panel cannot show, so returning it would hand back
+        something the user cannot confirm on the hardware.
         """
         value = self.read(path)[0].get("device_id")
         if isinstance(value, bool) or not isinstance(value, int):
             return None
-        return value if 0 <= value <= MAX_DEVICE_ID else None
+        return value if minimum <= value <= maximum else None
 
     def save_device_id(self, device_id: int, path: str | None = None) -> None:
         self.update(path, device_id=int(device_id))
