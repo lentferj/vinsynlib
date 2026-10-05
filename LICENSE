@@ -1,0 +1,58 @@
+vinsynlib — Shared base for the ROMpler instrument browsers
+Copyright (C) 2026  vinsynlib contributors
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 2 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+The full, verbatim text of the GNU General Public License version 2 is in
+the file COPYING alongside this one. This file records only the project's
+copyright notice and its third-party attributions.
+
+-------------------------------------------------------------------------------
+Where the code in this repository came from
+-------------------------------------------------------------------------------
+
+This library is the common base of a family of sibling projects: emorphed,
+ensqsqed, eosed, kwsed, nanosyned, p2ked, rxved, s3ked and x5ded. Each of
+those grew its own copy of the same handful of modules -- the settings cache,
+the favourites database, bank listing, dump framing, MIDI port discovery --
+and each copy then drifted a little. What is here is the common version of
+that code, kept in step across the family rather than copied nine times.
+
+The code is a GPL-2.0-or-later derivative of the sibling projects, which are
+all GPL-2.0-or-later themselves and carry copyright notices of the form
+"Copyright (C) 2026 <project> contributors". Those notices are preserved in
+the file headers of the files that came from them, and the aggregate list of
+contributors is reproduced below.
+
+  Copyright (C) 2026  emorphed contributors
+  Copyright (C) 2026  ensqsqed contributors
+  Copyright (C) 2026  eosed contributors
+  Copyright (C) 2026  kwsed contributors
+  Copyright (C) 2026  nanosyned contributors
+  Copyright (C) 2026  p2ked contributors
+  Copyright (C) 2026  rxved contributors
+  Copyright (C) 2026  s3ked contributors
+  Copyright (C) 2026  x5ded contributors
+
+-------------------------------------------------------------------------------
+Third-party references and their licenses
+-------------------------------------------------------------------------------
+
+No third-party code is bundled here. The sibling projects acknowledge the
+following external references, none of which is vendored into this library:
+
+Edisyn (Sean Luke and contributors) — Apache License 2.0. Consulted for
+facts about device behaviour, not for code.
+
+The GPL-2.0 text in COPYING is the license itself, not third-party code.
