@@ -210,8 +210,62 @@ def test_the_header_says_which_tool_it_belongs_to(tmp_path: Any) -> None:
     assert head.startswith("# s3ked local config")
 
 
+def test_an_unwritable_path_is_survivable(tmp_path: Any) -> None:
+    """Forgetting a preference beats refusing to run.
+
+    The unwritable path is a parent that is a *file*, not a read-only
+    directory. `os.chmod` on a directory is a no-op on Windows -- the write
+    succeeds there, so the read-only version of this test passed for the
+    wrong reason on the author's machine and failed on the Windows runner.
+    A file where a directory is expected raises `NotADirectoryError` on
+    every platform, so this one exercises the same `except OSError` arm and
+    means the same thing everywhere.
+    """
+    not_a_directory = tmp_path / "afile"
+    not_a_directory.write_text("", encoding="utf-8")
+    store = config.Settings("x5ded", str(not_a_directory / "config.toml"))
+
+    store.save_channel(7)  # must not raise
+    assert store.load_channel() is None
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="a read-only directory is a POSIX idea; see the test above",
+)
+def test_a_write_that_fails_is_survivable(
+    tmp_path: Any, monkeypatch: Any
+) -> None:
+    """Forgetting a preference beats refusing to run.
+
+    Provoked by making the write fail rather than by making the directory
+    read-only, because ``chmod(0o500)`` is not what makes a directory
+    unwritable on Windows: the write there succeeds, the preference is
+    kept, and the assertion fails -- which is what the Windows runner did.
+    The behaviour under test is "only OSError is swallowed", and this
+    provokes exactly that, everywhere.
+    """
+
+    def refuse(*_args: Any, **_kwargs: Any) -> Any:
+        raise OSError(13, "Permission denied")
+
+    # `raising=False`: the module has no `open` of its own, and this shadows
+    # the builtin for the duration of the test only.
+    monkeypatch.setattr("vinsynlib.config.open", refuse, raising=False)
+
+    store = config.Settings("x5ded", str(tmp_path / "config.toml"))
+    store.save_channel(7)
+    assert store.load_channel() is None
+
+
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="Windows has no POSIX mode bits: os.chmod there only toggles the "
+    "read-only flag and a directory stays writable, so this would assert "
+    "nothing. The platform-independent case is the test above.",
+)
 def test_a_read_only_directory_is_survivable(tmp_path: Any) -> None:
-    """Forgetting a preference beats refusing to run."""
+    """The same thing against a real read-only directory, where that exists."""
     directory = tmp_path / "ro"
     directory.mkdir()
     os.chmod(directory, 0o500)

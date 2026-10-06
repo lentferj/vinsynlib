@@ -248,6 +248,21 @@ def test_a_v1_database_gains_the_active_column(tmp_path: Any) -> None:
 # --- where the file lives ----------------------------------------------------
 
 
+def _home(monkeypatch: Any, path: str) -> None:
+    """Point ``~`` at ``path`` on every platform.
+
+    Patching HOME is not enough. ``os.path.expanduser`` reads HOME on POSIX
+    and USERPROFILE on Windows, so on a Windows runner the library resolved
+    the *real* home directory while these tests compared against a temporary
+    one -- three failures that no amount of running them here would show.
+
+    Patching ``expanduser`` itself tests the branch under test rather than
+    the host's convention for saying where home is, which is the thing that
+    differs.
+    """
+    monkeypatch.setattr(os.path, "expanduser", lambda _path="~": path)
+
+
 def test_xdg_data_home_is_honoured_when_absolute(
     monkeypatch: Any, tmp_path: Any
 ) -> None:
@@ -264,7 +279,7 @@ def test_a_relative_xdg_data_home_is_ignored(
     started."""
     monkeypatch.setattr("sys.platform", "linux")
     monkeypatch.setenv("XDG_DATA_HOME", "relative/path")
-    monkeypatch.setenv("HOME", str(tmp_path))
+    _home(monkeypatch, str(tmp_path))
     assert favorites.data_dir("rxved") == str(
         tmp_path / ".local" / "share" / "rxved"
     )
@@ -304,7 +319,7 @@ def test_macos_uses_application_support(
     monkeypatch: Any, tmp_path: Any
 ) -> None:
     monkeypatch.setattr("sys.platform", "darwin")
-    monkeypatch.setenv("HOME", str(tmp_path))
+    _home(monkeypatch, str(tmp_path))
     assert favorites.data_dir("ensqsqed") == str(
         tmp_path / "Library" / "Application Support" / "ensqsqed"
     )
@@ -314,7 +329,9 @@ def test_macos_with_no_home_falls_back_to_xdg(
     monkeypatch: Any, tmp_path: Any
 ) -> None:
     monkeypatch.setattr("sys.platform", "darwin")
-    monkeypatch.setenv("HOME", "unset")
+    # A "~" that did not expand: not an absolute path, so the macOS branch
+    # has nowhere to put anything and falls through to XDG.
+    _home(monkeypatch, "~")
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
     assert favorites.data_dir("ensqsqed") == str(tmp_path / "ensqsqed")
 
