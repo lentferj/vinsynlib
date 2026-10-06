@@ -124,14 +124,51 @@ class Settings:
         A file that does not exist reads as empty and is not an error: the
         first run of a program has no settings yet, and that is the normal
         case rather than a fault to report.
+
+        A file that exists but cannot be parsed reports ``"unreadable"``,
+        which :meth:`update` turns into a refusal rather than a blind
+        overwrite. Collapsing the two cases is what made a whole class of
+        bug invisible, so they are kept apart.
+
+        **Decoded leniently, then parsed as TOML.** Three of the copies this
+        replaces decoded the bytes themselves and fell back to cp1252 for
+        anything that was not valid UTF-8, and dropping that on the way into
+        the library was a regression rather than a simplification. The cause
+        was real: a writer that opened the file in text mode with no
+        ``encoding=`` used the locale codec, which on Windows is cp1252, and
+        the em dash in the writer's own header comment then landed as a byte
+        ``tomllib`` rejects. The whole file was refused, every setting in it
+        silently read back as unset, and -- because refusing to overwrite an
+        unparseable file is itself correct -- the settings cache could not
+        heal until somebody deleted it by hand.
+
+        Fixing the writer removed that one cause. It did not remove the
+        upgrade path: somebody who ran the broken build still has the file
+        it wrote. Decoding leniently lets their hand-edited keys survive, and
+        the next save rewrites the file as UTF-8, so it stays readable from
+        then on.
         """
         target = path or self.default_path
         if not os.path.exists(target) or tomllib is None:
             return {}, "ok"
         try:
             with open(target, "rb") as handle:
-                return tomllib.load(handle), "ok"
-        except (OSError, ValueError):
+                raw = handle.read()
+        except OSError:
+            return {}, "unreadable"
+        try:
+            return tomllib.loads(raw.decode("utf-8")), "ok"
+        except UnicodeDecodeError:
+            # Not valid UTF-8, so it was almost certainly written by a build
+            # using the locale codec. Decoded leniently so a user's
+            # hand-edited keys survive the upgrade; the next save repairs the
+            # encoding for good.
+            pass
+        except ValueError:
+            return {}, "unreadable"
+        try:
+            return tomllib.loads(raw.decode("cp1252", errors="replace")), "ok"
+        except ValueError:
             return {}, "unreadable"
 
     # --- writing -------------------------------------------------------------

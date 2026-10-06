@@ -110,6 +110,65 @@ def test_a_quote_in_a_port_name_does_not_corrupt_the_file(
     assert store.load_channel() == 3
 
 
+def test_a_file_written_in_the_locale_codec_is_still_readable(
+    tmp_path: Any,
+) -> None:
+    """The upgrade path: a file an older build wrote is not this one's fault.
+
+    The cause was a writer that opened the file in text mode with no
+    ``encoding=``, which means the locale codec, and on Windows that is
+    cp1252 -- where the writer's own em dash in the header comment lands as
+    a byte ``tomllib`` rejects. The whole file was then refused, every
+    setting in it silently read back as unset, and -- because refusing to
+    overwrite an unparseable file is itself correct -- the cache could not
+    heal until somebody deleted it by hand.
+
+    Fixing the writer removed the cause. This test is about the other half:
+    somebody who ran the broken build still has the file it wrote, and their
+    hand-edited keys have to survive the upgrade. Decoding leniently does
+    that, and the next save rewrites the file as UTF-8 for good.
+    """
+    path = tmp_path / "config.toml"
+    # Exactly what the broken build wrote: an em dash in cp1252.
+    path.write_bytes(
+        "# s3ked local config — gitignored, safe to delete.\n"
+        'cache_depth = "full"\n'.encode("cp1252")
+    )
+    store = config.Settings("s3ked", str(path))
+
+    data, status = store.read()
+    assert status == "ok", data
+    assert data["cache_depth"] == "full"
+
+    # ...and the next save repairs the encoding, keeping the hand-edited key.
+    store.save_channel(7)
+    path.read_bytes().decode("utf-8")  # must not raise
+    assert store.load_channel() == 7
+    assert store.read()[0]["cache_depth"] == "full"
+
+
+def test_a_file_that_is_not_toml_in_any_encoding_is_still_refused(
+    tmp_path: Any, capsys: Any
+) -> None:
+    """Lenient decoding must not become lenient parsing.
+
+    Decoding cp1252 replaces every byte it cannot map, so it will happily
+    produce text from a file that was never TOML. The refusal is the
+    important part: an unparseable file must not be read as "no settings"
+    and then overwritten, or one bad byte costs the user everything else in
+    it.
+    """
+    path = tmp_path / "config.toml"
+    path.write_bytes(b"this is not = = toml\x80\x81\n")
+    store = config.Settings("s3ked", str(path))
+    before = path.read_bytes()
+
+    store.save_channel(4)
+    assert store.load_channel() is None
+    assert path.read_bytes() == before
+    assert "could not be parsed" in capsys.readouterr().err
+
+
 def test_an_unparseable_file_is_never_overwritten(
     tmp_path: Any, capsys: Any
 ) -> None:
