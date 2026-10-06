@@ -10,10 +10,10 @@ The shared base of a family of terminal instrument browsers.
 Nine sibling programs browse nine instruments over MIDI from a terminal:
 [emorphed](https://github.com/lentferj/emorphed) (E-mu Morpheus),
 [ensqsqed](https://github.com/lentferj/ensqsqed) (Ensoniq SQ-R Plus),
-[eosed](https://github.com/lentferj/eosed) (Ensoniq E4XT),
+[eosed](https://github.com/lentferj/eosed) (E-mu E4XT),
 [kwsed](https://github.com/lentferj/kwsed) (Korg Wavestation SR),
 [nanosyned](https://github.com/lentferj/nanosyned) (Alesis NanoSynth),
-[p2ked](https://github.com/lentferj/p2ked) (E-mU Proteus 2000),
+[p2ked](https://github.com/lentferj/p2ked) (E-mu Proteus 2000),
 [rxved](https://github.com/lentferj/rxved) (Roland XV-2020),
 [s3ked](https://github.com/lentferj/s3ked) (Akai S1000/S3000) and
 [x5ded](https://github.com/lentferj/x5ded) (Korg X5D/X5DR).
