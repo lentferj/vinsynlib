@@ -52,6 +52,35 @@ vinsynlib/
   ui/hints.py      the legend widget
 ```
 
+## Installing it, and who depends on it
+
+This is a library, not a program, and it is **not on PyPI yet**. The ten tools
+in the family depend on it, so it has to be a sibling checkout of whichever
+one you are building:
+
+```
+git-repos/
+  vinsynlib/     <- this one
+  x5ded/         <- and the ten tools beside it
+  emorphed/  ensqsqed/  eosed/  kwsed/  ...
+```
+
+```sh
+cd ../x5ded                     # or any sibling
+git clone https://github.com/lentferj/vinsynlib.git ../vinsynlib
+python3 -m venv .venv
+.venv/bin/pip install --no-deps -e ../vinsynlib   # --no-deps: its deps are theirs
+.venv/bin/pip install -e .
+```
+
+Each of the ten writes those steps out in its own README, because a reader
+starts from the tool and rarely from here. With `uv`, `uv sync` takes the path
+from `[tool.uv.sources]` in that project's `pyproject.toml`, so the checkout
+only has to exist and neither `pip` line is needed.
+
+Publishing this to PyPI would replace all of it with an ordinary dependency
+line. Until then, the sibling checkout *is* the install.
+
 ## Why it exists
 
 Nine projects each grew a `config.py` (about 190 lines, 90-97% identical),
