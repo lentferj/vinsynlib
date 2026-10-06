@@ -28,6 +28,12 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
+from importlib.metadata import (
+    PackageNotFoundError,
+)
+from importlib.metadata import (
+    version as _dist_version,
+)
 from typing import Any
 
 from . import spec
@@ -42,7 +48,12 @@ __all__ = [
 
 
 def make_parser(
-    prog: str, description: str, *, epilog: str = ""
+    prog: str,
+    description: str,
+    *,
+    epilog: str = "",
+    distribution: str | None = None,
+    version: str | None = None,
 ) -> argparse.ArgumentParser:
     """A parser with the family's conventions already applied.
 
@@ -50,6 +61,23 @@ def make_parser(
     in it. The conventions: the program is asked to print its own help on a
     pipe rather than a width chosen by guesswork, and a subcommand is
     required rather than defaulting to something surprising.
+
+    ``--version`` reports the project's own version, found from the
+    installed distribution named by ``distribution`` -- which defaults to
+    ``prog``, and is right for every tool's terminal front end, where the
+    command and the distribution share a name. It is NOT right for the pipe
+    front end: the distribution is ``eosed`` and the command is ``eoscli``,
+    so those callers name it. Guessing it from the caller's module would
+    work and would be the kind of clever this family keeps having to
+    unpick.
+
+    ``version`` is for a caller that is not installed as a distribution at
+    all: a test, or a run straight from a checkout.
+
+    A tool that cannot be found as a distribution gets no ``--version``
+    rather than a bare ``--version`` that prints nothing useful: an option
+    that answers "which version?" with a shrug is worse than an option that
+    is not there.
     """
     parser = argparse.ArgumentParser(
         prog=prog,
@@ -57,10 +85,31 @@ def make_parser(
         epilog=epilog or None,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument(
-        "--version", action="version", version="%(prog)s (vinsynlib family)"
-    )
+    found: str | None
+    if version is not None:
+        found = version
+    else:
+        found = _version_of(distribution or prog)
+    if found:
+        parser.add_argument(
+            "--version", action="version", version=f"%(prog)s {found}"
+        )
     return parser
+
+
+def _version_of(distribution: str) -> str | None:
+    """The installed version of ``distribution``, or ``None``.
+
+    By name rather than by importing something: every tool in this family
+    installs a distribution named exactly what the command is called, and a
+    console script can be run from a virtualenv in which the package is not
+    importable yet. ``PackageNotFoundError`` is not an error here -- a
+    checkout that was never installed is a normal way to run these.
+    """
+    try:
+        return _dist_version(distribution)
+    except PackageNotFoundError:
+        return None
 
 
 def add_common_arguments(

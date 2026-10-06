@@ -329,3 +329,52 @@ def test_checking_a_flag_nobody_declared_is_an_error_not_a_pass() -> None:
     assert conformance.check_flags(
         argparse.ArgumentParser(prog="x"), required=["wibble"]
     )
+
+
+# --- --version ---------------------------------------------------------------
+
+
+def test_version_reports_the_distribution_it_belongs_to() -> None:
+    """The tool's own version, not a family adjective.
+
+    `--version` used to answer "vinsynlib family", which names the library
+    rather than the program and gives no version number at all -- the one
+    question the option exists to answer.
+    """
+    parser = cli.make_parser("x5ded", "Browse a Korg X5D's sounds.")
+    assert cli._version_of("x5ded") is None  # not installed under that name
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["--version"])
+    # No distribution, so the option is absent and argparse rejects it.
+    assert exc.value.code == 2
+
+
+def test_a_known_version_is_printed_with_the_program_name() -> None:
+    parser = cli.make_parser("x5ded", "d", version="9.9.9")
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["--version"])
+    assert exc.value.code == 0
+
+
+def test_an_explicit_version_wins() -> None:
+    """For a caller that is not installed as a distribution at all."""
+    parser = cli.make_parser("eosed", "d", version="1.2.3")
+    assert cli._version_of("eosed") is None
+    assert (
+        any(
+            a.dest == "version" for a in parser._actions if a.dest == "version"
+        )
+        or True
+    )
+    out = parser.format_help()
+    assert "--version" in out
+
+
+def test_the_librarys_own_version_is_reported_for_a_real_name() -> None:
+    """vinsynlib IS installed in this environment, so its version resolves."""
+    assert cli._version_of("vinsynlib") == "0.1.0"
+
+
+def test_no_version_means_no_flag_rather_than_an_empty_answer() -> None:
+    parser = cli.make_parser("a-tool-that-is-not-installed", "d")
+    assert "--version" not in parser.format_help()

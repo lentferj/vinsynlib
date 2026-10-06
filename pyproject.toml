@@ -8,13 +8,19 @@ version = "0.1.0"
 description = "Shared base for ROMpler instrument browsers: settings, favourites, banks, dumps, CLI and key conventions"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "GPL-2.0-or-later" }
+
+# SPDX expression and the file that carries it, rather than the old
+# `license = { text = ... }` table. The table form is deprecated, and it
+# cannot express that COPYING and the per-file notices are part of the
+# distribution -- which for a GPL project is the point of the metadata.
+license = "GPL-2.0-or-later"
+license-files = ["LICENSE", "COPYING"]
+
 keywords = ["midi", "synthesizer", "sampler", "textual", "terminal"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
-    "License :: OSI Approved :: GNU General Public License v2 or later (GPLv2+)",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Multimedia :: Sound/Audio :: MIDI",
@@ -35,6 +41,11 @@ dependencies = []
 [project.optional-dependencies]
 ui = ["textual>=0.80"]
 midi = ["python-rtmidi>=1.5"]
+
+[project.urls]
+Homepage = "https://github.com/lentferj/vinsynlib"
+Source = "https://github.com/lentferj/vinsynlib"
+Issues = "https://github.com/lentferj/vinsynlib/issues"
 
 [dependency-groups]
 dev = [

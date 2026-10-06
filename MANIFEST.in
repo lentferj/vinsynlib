@@ -1,0 +1,10 @@
+# The sdist is the thing a distributor rebuilds from, so it carries
+# everything the project is: the contract in docs/, the disclaimer the
+# README links to, and the quality gate. The wheel deliberately does not --
+# a wheel is the importable code, and nothing else.
+include LICENSE
+include COPYING
+include DISCLAIMER.md
+include Makefile
+recursive-include docs *.md
+recursive-include tests *.py
