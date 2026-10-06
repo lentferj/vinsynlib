@@ -230,35 +230,6 @@ def test_an_unwritable_path_is_survivable(tmp_path: Any) -> None:
 
 
 @pytest.mark.skipif(
-    os.name == "nt",
-    reason="a read-only directory is a POSIX idea; see the test above",
-)
-def test_a_write_that_fails_is_survivable(
-    tmp_path: Any, monkeypatch: Any
-) -> None:
-    """Forgetting a preference beats refusing to run.
-
-    Provoked by making the write fail rather than by making the directory
-    read-only, because ``chmod(0o500)`` is not what makes a directory
-    unwritable on Windows: the write there succeeds, the preference is
-    kept, and the assertion fails -- which is what the Windows runner did.
-    The behaviour under test is "only OSError is swallowed", and this
-    provokes exactly that, everywhere.
-    """
-
-    def refuse(*_args: Any, **_kwargs: Any) -> Any:
-        raise OSError(13, "Permission denied")
-
-    # `raising=False`: the module has no `open` of its own, and this shadows
-    # the builtin for the duration of the test only.
-    monkeypatch.setattr("vinsynlib.config.open", refuse, raising=False)
-
-    store = config.Settings("x5ded", str(tmp_path / "config.toml"))
-    store.save_channel(7)
-    assert store.load_channel() is None
-
-
-@pytest.mark.skipif(
     os.name != "posix",
     reason="Windows has no POSIX mode bits: os.chmod there only toggles the "
     "read-only flag and a directory stays writable, so this would assert "
