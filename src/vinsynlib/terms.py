@@ -97,7 +97,13 @@ ALLOWED_SOUND_WORDS: frozenset[str] = frozenset(
 )
 
 ALLOWED_CONTAINER_WORDS: frozenset[str] = frozenset(
-    {"bank", "group", "region", "ROM", "card", "library"}
+    # "memory" is the Akai samplers' own word -- an S1000 or S3000 has memory
+    # rather than banks, and the panel, the manual and the STAT reply all say
+    # so. It was missing here while being assigned to `s3ked` in
+    # docs/UX-SPEC.md section 1, which is how the spec and the code it is
+    # checked against came to disagree: the table could not be satisfied by
+    # the tool the table named.
+    {"bank", "group", "region", "ROM", "card", "library", "memory"}
 )
 
 _IRREGULAR: dict[str, str] = {
