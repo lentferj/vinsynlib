@@ -78,6 +78,13 @@ class Flag:
     metavar: str = ""
     #: Only for editors: the option that arms a destructive path.
     editor_only: bool = False
+    #: The wording for a tool that has no settings cache, where the canonical
+    #: :attr:`help` promises one. Empty means "no variant": the flag reads the
+    #: same in every tool, which is the usual case. It exists so that the
+    #: wording a tool without a cache prints is still declared here, in the
+    #: contract, rather than composed inline in the command-line builder and
+    #: forgiven by the conformance check.
+    help_without_config: str = ""
 
     @property
     def option(self) -> str:
@@ -97,8 +104,11 @@ def _f(  # noqa: PLR0913
     aliases: tuple[str, ...] = (),
     metavar: str = "",
     editor_only: bool = False,
+    help_without_config: str = "",
 ) -> Flag:
-    return Flag(name, help, aliases, kind, metavar, editor_only)
+    return Flag(
+        name, help, aliases, kind, metavar, editor_only, help_without_config
+    )
 
 
 #: Every option the family knows, in the order ``--help`` shows them.
@@ -108,6 +118,7 @@ CANONICAL_FLAGS: tuple[Flag, ...] = (
         "str",
         "MIDI port name (default: the one remembered in config.toml)",
         metavar="PORT",
+        help_without_config="MIDI port name",
     ),
     _f(
         "scan",

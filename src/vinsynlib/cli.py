@@ -41,6 +41,7 @@ from .config import MAX_DEVICE_ID, MAX_MIDI_CHANNEL, MIDI_CHANNELS
 
 __all__ = [
     "add_common_arguments",
+    "append_flag_help",
     "channel_of",
     "make_parser",
     "validate_common",
@@ -160,11 +161,13 @@ def add_common_arguments(
     for flag in spec.CANONICAL_FLAGS:
         if not wanted.get(flag.name, False):
             continue
-        # Customize help text for port flag based on whether config is set
-        if flag.name == "port" and not config:
-            help_text = "MIDI port name"
-        else:
-            help_text = flag.help
+        # A flag may describe a settings cache the tool does not have. In a
+        # tool built with config=False the variant from the spec is used
+        # instead, so the wording still comes from the contract rather than
+        # from a branch here.
+        help_text = flag.help
+        if not config and flag.help_without_config:
+            help_text = flag.help_without_config
 
         kwargs: dict[str, Any] = {
             "help": help_text,
@@ -181,6 +184,28 @@ def add_common_arguments(
             kwargs["metavar"] = flag.metavar
         parser.add_argument(*flag.options(), **kwargs)
     return parser
+
+
+def append_flag_help(
+    parser: argparse.ArgumentParser, name: str, extra: str
+) -> None:
+    """Append ``extra`` to the help of one already-added option.
+
+    A tool that keeps the family's option but has one thing more to say about
+    it -- the phrasing of a default, a hint for finding a value -- uses this
+    rather than reaching into ``parser._actions`` itself or rewriting the
+    option. The family's help is the prefix and stays the prefix, so the
+    conformance check still recognises the flag.
+
+    ``name`` is the canonical flag name from :data:`spec.CANONICAL_FLAGS`.
+    Silently does nothing if the option is not on this parser: a tool that did
+    not ask for the flag has nothing to append to.
+    """
+    dest = name.replace("-", "_")
+    for action in parser._actions:
+        if action.dest == dest:
+            action.help = f"{action.help or ''} {extra}".rstrip()
+            return
 
 
 def validate_common(

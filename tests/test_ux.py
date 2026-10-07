@@ -324,6 +324,43 @@ def test_a_reworded_flag_help_is_reported_with_both_wordings() -> None:
     assert "the port" in problems[0]
 
 
+def test_a_shortened_flag_help_is_rejected() -> None:
+    """A prefix is not a wording: dropping half the help is a drift too."""
+    parser = argparse.ArgumentParser(prog="x5cli")
+    parser.add_argument("--port", help="MIDI po")
+    assert conformance.check_flags(parser, required=["port"])
+
+
+def test_a_flag_help_extended_with_a_tools_own_sentence_passes() -> None:
+    parser = argparse.ArgumentParser(prog="x5cli")
+    parser.add_argument(
+        "--port", help=spec.flag_help("port") + " (implies --rig standard)"
+    )
+    assert conformance.check_flags(parser, required=["port"]) == []
+
+
+def test_the_no_config_variant_the_spec_declares_is_accepted() -> None:
+    port = next(f for f in spec.CANONICAL_FLAGS if f.name == "port")
+    parser = argparse.ArgumentParser(prog="x5cli")
+    parser.add_argument("--port", help=port.help_without_config)
+    assert conformance.check_flags(parser, required=["port"]) == []
+
+
+def test_append_flag_help_keeps_the_family_help_the_prefix() -> None:
+    parser = argparse.ArgumentParser(prog="x5cli")
+    cli.add_common_arguments(
+        parser, port=True, channel=False, config=True, demo=False
+    )
+    cli.append_flag_help(parser, "port", "(implies --rig standard)")
+    assert conformance.check_flags(parser, required=["port"]) == []
+
+
+def test_append_flag_help_ignores_a_flag_the_parser_does_not_have() -> None:
+    parser = argparse.ArgumentParser(prog="x5cli")
+    cli.append_flag_help(parser, "port", "unused")  # must not raise
+    assert conformance.check_flags(parser, required=["port"])
+
+
 def test_a_flag_whose_old_spelling_was_dropped_is_reported() -> None:
     parser = argparse.ArgumentParser(prog="x5cli")
     parser.add_argument(

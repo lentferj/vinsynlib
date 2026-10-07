@@ -49,6 +49,7 @@ __all__ = [
     "conformance",
     "devchecks",
     "favorites",
+    "is_compatible_version",
     "keys",
     "midi",
     "spec",

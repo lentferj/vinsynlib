@@ -99,12 +99,18 @@ def check_flags(
             problems.append(f"--{name} is missing")
             continue
         action_help = action.help or ""
-        # Allow action_help to be a prefix of flag.help (e.g., when config=False
-        # the port help is just "MIDI port name" without the config.toml suffix)
-        if not (action_help.startswith(flag.help) or flag.help.startswith(action_help)):
+        # The family's help, verbatim; the family's help plus a tool's own
+        # sentence appended; or, for a tool with no settings cache, the
+        # variant the spec declares for exactly that case. Nothing else -- a
+        # shorter prefix is not accepted, so a tool cannot quietly drop half a
+        # flag's help and still pass.
+        accepted = [flag.help]
+        if flag.help_without_config:
+            accepted.append(flag.help_without_config)
+        if not (action_help in accepted or action_help.startswith(flag.help)):
             problems.append(
                 f"--{name} help text does not match the family's:\n"
-                f"    family: {flag.help}\n"
+                f"    family: {' or '.join(accepted)}\n"
                 f"    here:   {action_help}"
             )
         present = set(action.option_strings)
