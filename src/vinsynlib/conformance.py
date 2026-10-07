@@ -78,8 +78,9 @@ def check_flags(
     """Every required option present, worded the family's way.
 
     ``required`` names canonical flags from :data:`spec.CANONICAL_FLAGS`.
-    A required flag that is missing, or present with different help text,
-    or present without its documented older spelling, is a problem.
+    A required flag that is missing, or present with help text that does not
+    start with the family's help text, or present without its documented older
+    spelling, is a problem.
     """
     problems: list[str] = []
     known = {action.dest: action for action in parser._actions}
@@ -97,11 +98,12 @@ def check_flags(
         if action is None:
             problems.append(f"--{name} is missing")
             continue
-        if (action.help or "") != flag.help:
+        action_help = action.help or ""
+        if not action_help.startswith(flag.help):
             problems.append(
-                f"--{name} help text differs from the family's:\n"
+                f"--{name} help text does not start with the family's:\n"
                 f"    family: {flag.help}\n"
-                f"    here:   {action.help}"
+                f"    here:   {action_help}"
             )
         present = set(action.option_strings)
         missing = set(flag.options()) - present
