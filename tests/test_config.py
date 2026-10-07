@@ -328,6 +328,24 @@ def test_a_roland_device_id_in_range_is_returned(
     assert store.load_device_id(minimum=17, maximum=32) == value
 
 
+def test_unset_removes_key_from_settings(tmp_path: Any) -> None:
+    """Settings.update can remove keys by setting their value to None."""
+    path = tmp_path / "config.toml"
+    # Start with a file that has some settings
+    path.write_text("port = 'TEST'\ndevice_id = 42\n", encoding="utf-8")
+    
+    # Create settings instance
+    store = config.Settings("test", str(path))
+    
+    # Unset the port by setting it to None
+    store.update(port=None)
+    
+    # Read back and verify port is gone but device_id remains
+    data, _ = store.read()
+    assert "port" not in data
+    assert data.get("device_id") == 42
+
+
 def test_the_default_range_is_the_whole_byte(tmp_path: Any) -> None:
     path = tmp_path / "config.toml"
     path.write_text("device_id = 200\n", encoding="utf-8")

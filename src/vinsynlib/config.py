@@ -182,6 +182,8 @@ class Settings:
         reports -- so a quote in one produces a file that is not TOML, and a
         cache that never heals, because every later run reads nothing and
         writes nothing until somebody deletes it by hand.
+
+        To unset a key, set its value to ``None``.
         """
         target = path or self.default_path
         data, status = self.read(target)
@@ -195,7 +197,11 @@ class Settings:
                     file=sys.stderr,
                 )
             return
-        data.update(changes)
+        for key, value in changes.items():
+            if value is None:
+                data.pop(key, None)  # Remove key if present
+            else:
+                data[key] = value
         lines = [
             f"# {self.app_name} local config - gitignored, safe to delete."
         ]
