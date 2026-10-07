@@ -161,9 +161,12 @@ python3 -m venv .venv
 ```
 
 Each of the ten writes those steps out in its own README, because a reader
-starts from the tool and rarely from here. With `uv`, `uv sync` takes the path
-from `[tool.uv.sources]` in that project's `pyproject.toml`, so the checkout
-only has to exist and neither `pip` line is needed.
+starts from the tool and rarely from here. For projects that configure
+`[tool.uv.sources]` pointing to this library, `uv sync` takes the path
+from there, so the checkout only has to exist and neither `pip` line is needed.
+For projects that work from an index (like the published tools), the explicit
+`pip install -e ../vinsynlib` line remains necessary until the library is
+published.
 
 Publishing this to PyPI would replace all of it with an ordinary dependency
 line. Until then, the sibling checkout *is* the install.
