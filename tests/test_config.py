@@ -333,13 +333,13 @@ def test_unset_removes_key_from_settings(tmp_path: Any) -> None:
     path = tmp_path / "config.toml"
     # Start with a file that has some settings
     path.write_text("port = 'TEST'\ndevice_id = 42\n", encoding="utf-8")
-    
+
     # Create settings instance
     store = config.Settings("test", str(path))
-    
+
     # Unset the port by setting it to None
     store.update(port=None)
-    
+
     # Read back and verify port is gone but device_id remains
     data, _ = store.read()
     assert "port" not in data

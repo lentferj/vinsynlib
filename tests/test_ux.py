@@ -103,13 +103,19 @@ def test_port_help_text_reflects_config_availability() -> None:
     # When config=True (default), help text should mention config.toml
     parser_with_config = _parser(port=True, config=True)
     help_with_config = parser_with_config.format_help()
-    assert "MIDI port name (default: the one remembered in config.toml)" in help_with_config
-    
+    assert (
+        "MIDI port name (default: the one remembered in config.toml)"
+        in help_with_config
+    )
+
     # When config=False, help text should not mention config.toml
     parser_without_config = _parser(port=True, config=False)
     help_without_config = parser_without_config.format_help()
     assert "MIDI port name" in help_without_config
-    assert "(default: the one remembered in config.toml)" not in help_without_config
+    assert (
+        "(default: the one remembered in config.toml)"
+        not in help_without_config
+    )
 
 
 def test_an_older_spelling_still_works() -> None:

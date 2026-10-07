@@ -99,9 +99,11 @@ def check_flags(
             problems.append(f"--{name} is missing")
             continue
         action_help = action.help or ""
-        if not action_help.startswith(flag.help):
+        # Allow action_help to be a prefix of flag.help (e.g., when config=False
+        # the port help is just "MIDI port name" without the config.toml suffix)
+        if not (action_help.startswith(flag.help) or flag.help.startswith(action_help)):
             problems.append(
-                f"--{name} help text does not start with the family's:\n"
+                f"--{name} help text does not match the family's:\n"
                 f"    family: {flag.help}\n"
                 f"    here:   {action_help}"
             )

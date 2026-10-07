@@ -160,12 +160,12 @@ def add_common_arguments(
     for flag in spec.CANONICAL_FLAGS:
         if not wanted.get(flag.name, False):
             continue
-        # Customize help text for port flag based on whether config is available
+        # Customize help text for port flag based on whether config is set
         if flag.name == "port" and not config:
             help_text = "MIDI port name"
         else:
             help_text = flag.help
-            
+
         kwargs: dict[str, Any] = {
             "help": help_text,
             "dest": flag.name.replace("-", "_"),

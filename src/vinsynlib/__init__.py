@@ -56,3 +56,27 @@ __all__ = [
 ]
 
 __version__ = "0.1.0"
+
+
+def is_compatible_version(
+    version_string: str, minimum: tuple[int, ...]
+) -> bool:
+    """Return True if version_string meets or exceeds minimum version tuple.
+
+    Handles version strings with fewer than 3 components by treating missing
+    components as 0 for comparison purposes.
+
+    For example, with minimum=(0, 1, 0):
+      - "0.1" -> (0, 1, 0) -> True (equal)
+      - "0.1.0" -> (0, 1, 0) -> True (equal)
+      - "0.0.9" -> (0, 0, 9) -> False (less than)
+      - "1" -> (1, 0, 0) -> True (greater than)
+    """
+    try:
+        version_parts = [int(part) for part in version_string.split(".")[:3]]
+        # Pad to at least len(minimum) components for proper comparison
+        padded = version_parts + [0] * (len(minimum) - len(version_parts))
+        current = tuple(padded[: len(minimum)])
+        return current >= minimum
+    except (ValueError, AttributeError):
+        return False
