@@ -273,9 +273,8 @@ SUBCOMMANDS: tuple[Subcommand, ...] = (
     _s("send", "WRITE a dump into the unit", writes=True),
     _s(
         "hardware",
-        "what the unit reports about itself (no unit needed)",
+        "what the unit reports about itself",
         aliases=("config", "inquire"),
-        needs="nothing",
     ),
     _s("channels", "every MIDI channel, and what it selects"),
     _s("multi", "multi-mode setup, and why a channel is silent"),
