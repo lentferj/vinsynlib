@@ -428,7 +428,9 @@ def test_an_explicit_version_wins() -> None:
 
 def test_the_librarys_own_version_is_reported_for_a_real_name() -> None:
     """vinsynlib IS installed in this environment, so its version resolves."""
-    assert cli._version_of("vinsynlib") == "0.1.0"
+    import vinsynlib
+
+    assert cli._version_of("vinsynlib") == vinsynlib.__version__
 
 
 def test_no_version_means_no_flag_rather_than_an_empty_answer() -> None:

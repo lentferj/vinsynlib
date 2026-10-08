@@ -4,7 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vinsynlib"
-version = "0.1.0"
+# One source of truth. `__version__` is what `is_compatible_version` checks
+# and what the tools' entry points compare against, so a version here that
+# could drift from the module is the one number that must not be written
+# twice -- and a change that added API without changing it is exactly what
+# left p2ked crashing against a library it thought it could use.
+dynamic = ["version"]
 description = "Shared base for ROMpler instrument browsers: settings, favourites, banks, dumps, CLI and key conventions"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -66,6 +71,9 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["vinsynlib*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "vinsynlib.__version__"}
 
 [tool.pytest.ini_options]
 addopts = "--cov --cov-report=term-missing"
