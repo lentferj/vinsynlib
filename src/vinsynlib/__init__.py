@@ -59,25 +59,49 @@ __all__ = [
 __version__ = "0.1.0"
 
 
+def _release_parts(version_string: str, width: int) -> tuple[int, ...] | None:
+    """The leading numeric components of a version, or ``None``.
+
+    A component must begin with a digit; anything after the digits is a
+    pre-release or build marker and is ignored, so ``"0.2rc1"`` and
+    ``"1.0.0+local"`` compare as ``0.2`` and ``1.0.0``. A component that
+    does not begin with a digit at all (``"0.1.x"``, ``"not-a-version"``)
+    makes the whole string unusable rather than being guessed at, which is
+    the one case a version check must not get wrong.
+    """
+    parts: list[int] = []
+    for piece in version_string.split(".")[:width]:
+        digits = ""
+        for char in piece:
+            if not char.isdigit():
+                break
+            digits += char
+        if not digits:
+            return None
+        parts.append(int(digits))
+    if not parts:
+        return None
+    return tuple(parts + [0] * (width - len(parts)))
+
+
 def is_compatible_version(
     version_string: str, minimum: tuple[int, ...]
 ) -> bool:
     """Return True if version_string meets or exceeds minimum version tuple.
 
     Handles version strings with fewer than 3 components by treating missing
-    components as 0 for comparison purposes.
+    components as 0 for comparison purposes, and ignores a pre-release or
+    build suffix on a component.
 
     For example, with minimum=(0, 1, 0):
       - "0.1" -> (0, 1, 0) -> True (equal)
       - "0.1.0" -> (0, 1, 0) -> True (equal)
+      - "0.2rc1" -> (0, 2, 0) -> True (greater than)
       - "0.0.9" -> (0, 0, 9) -> False (less than)
       - "1" -> (1, 0, 0) -> True (greater than)
+      - "0.1.x"/"not-a-version"/None -> False (not a version)
     """
-    try:
-        version_parts = [int(part) for part in version_string.split(".")[:3]]
-        # Pad to at least len(minimum) components for proper comparison
-        padded = version_parts + [0] * (len(minimum) - len(version_parts))
-        current = tuple(padded[: len(minimum)])
-        return current >= minimum
-    except (ValueError, AttributeError):
+    if not isinstance(version_string, str):
         return False
+    current = _release_parts(version_string, len(minimum))
+    return current is not None and current >= minimum

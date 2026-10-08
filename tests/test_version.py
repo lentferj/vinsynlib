@@ -44,9 +44,14 @@ MINIMUM = (0, 1, 0)
         # Below the minimum.
         ("0.0.9", False),
         ("0.0.0", False),
+        # A pre-release or build suffix is ignored, so 0.2rc1 is 0.2.
+        ("0.2rc1", True),
+        ("0.2.0b1", True),
+        ("1.0.0+local", True),
         # Non-numeric input is refused rather than mis-parsed.
         ("not-a-version", False),
         ("0.1.x", False),
+        ("", False),
     ],
 )
 def test_the_contract_entries_the_family_uses(
