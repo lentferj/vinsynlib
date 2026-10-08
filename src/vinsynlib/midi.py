@@ -116,14 +116,39 @@ def _rtmidi() -> Any:
 
 
 def list_ports() -> tuple[list[str], list[str]]:
-    """``(inputs, outputs)`` as rtmidi names them, both clients closed."""
+    """``(inputs, outputs)`` as rtmidi names them, both clients closed.
+
+    Constructing a client is itself the operation that fails when the host
+    has no backend at all -- no ALSA sequencer, a container that was not
+    given one -- and it fails with the backend's own exception, not this
+    module's. It is turned into :class:`MidiUnavailable` here so that a
+    caller has one thing to catch, and whichever client *was* built is
+    deleted before the error leaves: rtmidi leaks its backend handle
+    otherwise, and on ALSA that shows up later as ports that cannot be
+    reopened.
+    """
     rtmidi = _rtmidi()
-    midi_in, midi_out = rtmidi.MidiIn(), rtmidi.MidiOut()
+    midi_in = None
+    midi_out = None
     try:
+        midi_in = rtmidi.MidiIn()
+        midi_out = rtmidi.MidiOut()
         return list(midi_in.get_ports()), list(midi_out.get_ports())
+    except MidiUnavailable:
+        raise
+    except Exception as exc:
+        raise MidiUnavailable(
+            f"no MIDI backend available ({exc}). On Linux this needs an "
+            f"ALSA sequencer; in a container it must be passed through."
+        ) from exc
     finally:
-        midi_in.delete()
-        midi_out.delete()
+        for client in (midi_in, midi_out):
+            if client is None:
+                continue
+            try:
+                client.delete()
+            except Exception:  # pragma: no cover - teardown
+                pass
 
 
 def bidirectional_ports(

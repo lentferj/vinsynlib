@@ -73,6 +73,61 @@ def test_the_note_is_optional() -> None:
     )
 
 
+class _FakeClient:
+    def __init__(self, ports: list[str]) -> None:
+        self._ports = ports
+        self.deleted = False
+
+    def get_ports(self) -> list[str]:
+        return self._ports
+
+    def delete(self) -> None:
+        self.deleted = True
+
+
+def test_list_ports_closes_both_clients(monkeypatch: Any) -> None:
+    made: list[_FakeClient] = []
+
+    class FakeRtmidi:
+        @staticmethod
+        def MidiIn() -> _FakeClient:
+            made.append(_FakeClient(["in"]))
+            return made[-1]
+
+        @staticmethod
+        def MidiOut() -> _FakeClient:
+            made.append(_FakeClient(["out"]))
+            return made[-1]
+
+    monkeypatch.setattr(midi, "_rtmidi", lambda: FakeRtmidi)
+    assert midi.list_ports() == (["in"], ["out"])
+    assert [client.deleted for client in made] == [True, True]
+
+
+def test_a_backend_that_will_not_open_is_midi_unavailable(
+    monkeypatch: Any,
+) -> None:
+    """The failure is the backend's own exception, and it is turned into the
+    family's so a caller has one thing to catch -- and the client that *did*
+    open is still deleted."""
+    leaked: list[_FakeClient] = []
+
+    class FakeRtmidi:
+        @staticmethod
+        def MidiIn() -> _FakeClient:
+            leaked.append(_FakeClient(["in"]))
+            return leaked[-1]
+
+        @staticmethod
+        def MidiOut() -> Any:
+            raise RuntimeError("MidiOutAlsa::initialize: no ALSA sequencer")
+
+    monkeypatch.setattr(midi, "_rtmidi", lambda: FakeRtmidi)
+    with pytest.raises(midi.MidiUnavailable, match="no MIDI backend"):
+        midi.list_ports()
+    assert leaked[0].deleted is True
+
+
 def test_fail_uses_the_familys_error_format() -> None:
     with pytest.raises(SystemExit) as exc:
         midi.fail("no unit answered")
