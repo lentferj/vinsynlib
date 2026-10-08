@@ -287,6 +287,21 @@ forgetting a preference beats refusing to run. Anything else is a bug and
 should be heard -- one tool's first attempt caught everything and so never
 noticed it was raising `NameError` on every call and writing nothing.
 
+**The header says whose file it is, and that is load-bearing.** All ten
+tools default to the same relative `config.toml`, so two of them will meet
+in one directory. The first line names the tool that wrote it, and a tool
+whose name is not on that line treats the file as not its own: it reads
+nothing from it and writes nothing to it, saying so once. The alternative
+is the second tool adopting the first's remembered port -- probing the
+wrong instrument, and for the two whose hardware shares a manufacturer,
+getting a reply that looks right. A file that holds tables or lists is also
+left alone, because this cache holds only scalars and a foreign project's
+`config.toml` is exactly that shape. The write is atomic (a temporary
+beside the target, then `os.replace`), so a reader running at the same time
+never sees half a file. The proper long-term fix is a per-tool config
+directory rather than one shared relative path; until the family moves, the
+header is what keeps the tools from destroying each other's settings.
+
 ### How a launch finds the unit
 
 This is the `--scan` policy, and every browser implements it the same way.

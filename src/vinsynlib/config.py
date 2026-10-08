@@ -48,6 +48,7 @@ these open has no way to tell which one is unhappy.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
 from dataclasses import dataclass, field
@@ -98,6 +99,34 @@ _ESCAPES = {
     "\f": "\\f",
 }
 
+#: The end of the first line written by :meth:`Settings.update`, after the
+#: application's name. One string, because two things now read it: the writer
+#: that puts it there, and the reader that refuses to treat another
+#: application's file as its own. The prefix is deliberately loose -- a build
+#: before this one wrote an em dash where this writes a hyphen, and a file
+#: that old still has to read as ours rather than as a stranger's.
+_HEADER = " local config - gitignored, safe to delete."
+
+
+def _owner(first_line: str | None) -> str | None:
+    """The application named in a settings file's first line, or ``None``.
+
+    ``None`` means "not a family header": a hand-written file, an old build's
+    em dash, or no comment at all. Only a file that names *another* tool is
+    treated as foreign, so an unrecognised header stays the caller's own and
+    the lenient upgrade path keeps working.
+    """
+    if first_line is None:
+        return None
+    line = first_line.strip()
+    if not line.startswith("#"):
+        return None
+    body = line[1:].strip()
+    if not body.endswith(_HEADER):
+        return None
+    name = body[: -len(_HEADER)].strip()
+    return name or None
+
 
 @dataclass
 class Settings:
@@ -110,11 +139,13 @@ class Settings:
 
     app_name: str
     default_path: str = DEFAULT_PATH
-    #: Whether the "cannot save" warning has already been printed. Module
-    #: level in the per-project copies this replaces, which is to say it was
-    #: shared by every ``Settings`` in the process; per instance is closer
-    #: to the intent and behaves the same for a single application.
-    _warned: bool = field(default=False, init=False, repr=False)
+    #: Which refusals have already been announced, so a launch prints each
+    #: at most once. Module level in the per-project copies this replaces,
+    #: which is to say it was shared by every ``Settings`` in the process;
+    #: per instance is closer to the intent and behaves the same for a
+    #: single application. A set rather than a bool because there are now
+    #: three reasons to refuse to write, and one must not silence another.
+    _warned: set[str] = field(default_factory=set, init=False, repr=False)
 
     # --- reading -------------------------------------------------------------
 
@@ -147,64 +178,115 @@ class Settings:
         it wrote. Decoding leniently lets their hand-edited keys survive, and
         the next save rewrites the file as UTF-8, so it stays readable from
         then on.
+
+        **A file that belongs to another tool reads as empty.** Nine of
+        these tools default to the same relative ``config.toml`` in whatever
+        directory they are launched from. When two of them meet in one
+        directory, the second must not read the first's remembered port: on
+        a bench that means probing the wrong instrument, and for the two
+        tools whose hardware shares a manufacturer it means a reply that
+        looks right. The file's own header says whose it is; see
+        :func:`_owner`.
         """
         target = path or self.default_path
-        if not os.path.exists(target) or tomllib is None:
+        data, status, first_line = self._read_document(target)
+        if status != "ok":
+            return data, status
+        owner = _owner(first_line)
+        if owner is not None and owner != self.app_name:
             return {}, "ok"
+        return data, "ok"
+
+    def _read_document(
+        self, target: str
+    ) -> tuple[dict[str, Any], str, str | None]:
+        """The parsed file, its status, and its first line.
+
+        The unfiltered form of :meth:`read`: :meth:`update` needs the header
+        and any foreign content to decide whether writing is safe, while
+        callers of :meth:`read` only ever want this application's keys.
+        """
+        if not os.path.exists(target) or tomllib is None:
+            return {}, "ok", None
         try:
             with open(target, "rb") as handle:
                 raw = handle.read()
         except OSError:
-            return {}, "unreadable"
+            return {}, "unreadable", None
         try:
-            return tomllib.loads(raw.decode("utf-8")), "ok"
+            text = raw.decode("utf-8")
         except UnicodeDecodeError:
             # Not valid UTF-8, so it was almost certainly written by a build
             # using the locale codec. Decoded leniently so a user's
             # hand-edited keys survive the upgrade; the next save repairs the
             # encoding for good.
-            pass
-        except ValueError:
-            return {}, "unreadable"
+            text = raw.decode("cp1252", errors="replace")
         try:
-            return tomllib.loads(raw.decode("cp1252", errors="replace")), "ok"
+            data = tomllib.loads(text)
         except ValueError:
-            return {}, "unreadable"
+            return {}, "unreadable", None
+        first_line = text.split("\n", 1)[0]
+        return data, "ok", first_line
 
     # --- writing -------------------------------------------------------------
 
     def update(self, path: str | None = None, **changes: Any) -> None:
         """Merge ``changes`` into the file, rewriting what is there.
 
-        Refuses to write over a file it cannot parse, and says so once. That
-        refusal is also why the escaping below matters: a port name is an
-        arbitrary string -- ALSA client names are whatever the device
-        reports -- so a quote in one produces a file that is not TOML, and a
-        cache that never heals, because every later run reads nothing and
-        writes nothing until somebody deletes it by hand.
+        Refuses, and says so once, in three cases, because in all three the
+        alternative is destroying something this tool did not write:
+
+        * the file cannot be parsed -- the refusal that is also why the
+          escaping below matters (a port name is an arbitrary string, and a
+          quote in one would otherwise produce a file that never heals);
+        * the file's header names a **different** tool in the family -- two
+          of these in one directory would otherwise overwrite each other's
+          remembered port on every launch, for ever;
+        * the file holds tables or lists -- this tool writes only scalars,
+          so anything nested belongs to somebody else (a foreign project's
+          ``config.toml`` looks exactly like this) and the old writer turned
+          it into Python ``repr`` and destroyed the file.
+
+        The write itself is atomic: a temporary file beside the target, then
+        ``os.replace``. The old writer truncated the target and refilled it,
+        so a reader running at the same time could see half a file. Only
+        :class:`OSError` is swallowed, as everywhere here.
 
         To unset a key, set its value to ``None``.
         """
         target = path or self.default_path
-        data, status = self.read(target)
+        data, status, first_line = self._read_document(target)
         if status == "unreadable":
-            if not self._warned:
-                self._warned = True
-                print(
-                    f"{self.app_name}: {target} could not be parsed, so "
-                    f"settings are not being saved. Fix or delete it; "
-                    f"nothing has been overwritten.",
-                    file=sys.stderr,
-                )
+            self._warn_once(
+                "unreadable",
+                f"{self.app_name}: {target} could not be parsed, so "
+                f"settings are not being saved. Fix or delete it; "
+                f"nothing has been overwritten.",
+            )
+            return
+        owner = _owner(first_line)
+        if owner is not None and owner != self.app_name:
+            self._warn_once(
+                "foreign",
+                f"{self.app_name}: {target} is {owner}'s settings file, so "
+                f"{self.app_name} is leaving it alone. Use --config to name "
+                f"a path of its own.",
+            )
+            return
+        if any(isinstance(value, (dict, list)) for value in data.values()):
+            self._warn_once(
+                "complex",
+                f"{self.app_name}: {target} holds tables or lists, which "
+                f"{self.app_name} does not write, so it is leaving it alone. "
+                f"Use --config to name a path of its own.",
+            )
             return
         for key, value in changes.items():
             if value is None:
                 data.pop(key, None)  # Remove key if present
             else:
                 data[key] = value
-        lines = [
-            f"# {self.app_name} local config - gitignored, safe to delete."
-        ]
+        lines = [f"# {self.app_name}{_HEADER}"]
         for key, value in data.items():
             if isinstance(value, bool):
                 lines.append(f"{key} = {'true' if value else 'false'}")
@@ -212,13 +294,30 @@ class Settings:
                 lines.append(f"{key} = {self._toml_string(value)}")
             else:
                 lines.append(f"{key} = {value}")
+        self._write_atomic(target, "\n".join(lines) + "\n")
+
+    def _warn_once(self, reason: str, message: str) -> None:
+        """Print ``message`` once per reason, per instance."""
+        if reason in self._warned:
+            return
+        self._warned.add(reason)
+        print(message, file=sys.stderr)
+
+    @staticmethod
+    def _write_atomic(target: str, text: str) -> None:
+        """Write ``text`` to ``target`` through a temporary beside it.
+
+        ``encoding=`` is not optional: without it Python uses the locale
+        codec, and TOML is UTF-8 by spec. Both ends must say so.
+        """
+        tmp = f"{target}.{os.getpid()}.tmp"
         try:
-            # encoding= is not optional: without it Python uses the locale
-            # codec, and TOML is UTF-8 by spec. Both ends must say so.
-            with open(target, "w", encoding="utf-8") as handle:
-                handle.write("\n".join(lines) + "\n")
+            with open(tmp, "w", encoding="utf-8") as handle:
+                handle.write(text)
+            os.replace(tmp, target)
         except OSError:
-            pass
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
 
     @staticmethod
     def _toml_string(value: str) -> str:

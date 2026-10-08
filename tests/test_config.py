@@ -352,3 +352,102 @@ def test_the_default_range_is_the_whole_byte(tmp_path: Any) -> None:
     assert config.Settings("x5ded", str(path)).load_device_id() is None
     path.write_text("device_id = 126\n", encoding="utf-8")
     assert config.Settings("x5ded", str(path)).load_device_id() == 126
+
+
+# --- one file per directory, nine tools --------------------------------------
+
+
+def test_a_file_that_belongs_to_another_tool_is_not_read(
+    tmp_path: Any,
+) -> None:
+    """The second tool in a directory must not adopt the first's port.
+
+    Nine of these default to the same relative ``config.toml``. On a bench
+    that means probing the wrong instrument -- and for the two whose
+    hardware shares a manufacturer, a reply that looks right.
+    """
+    path = tmp_path / "config.toml"
+    path.write_text(
+        "# x5ded local config - gitignored, safe to delete.\n"
+        'port = "Midi Out: Korg X5D"\n'
+        "channel = 4\n",
+        encoding="utf-8",
+    )
+    store = config.Settings("p2ked", str(path))
+    assert store.load_port() is None
+    assert store.load_channel() is None
+    assert store.read() == ({}, "ok")
+
+
+def test_a_file_that_belongs_to_another_tool_is_not_overwritten(
+    tmp_path: Any, capsys: Any
+) -> None:
+    path = tmp_path / "config.toml"
+    before = (
+        "# x5ded local config - gitignored, safe to delete.\n"
+        'port = "Midi Out: Korg X5D"\n'
+    )
+    path.write_text(before, encoding="utf-8")
+    store = config.Settings("p2ked", str(path))
+
+    store.save_channel(1)
+
+    assert path.read_text(encoding="utf-8") == before
+    err = capsys.readouterr().err
+    assert "p2ked" in err and "x5ded" in err
+
+
+def test_a_file_with_tables_is_left_alone(tmp_path: Any, capsys: Any) -> None:
+    """A foreign project's ``config.toml`` looks exactly like this.
+
+    The old writer would have rendered ``server`` as Python ``repr`` and
+    produced a file that is not TOML, losing the whole foreign document.
+    """
+    path = tmp_path / "config.toml"
+    before = (
+        '# a project that is not ours\ntitle = "my site"\n'
+        '[server]\nhost = "localhost"\nport = 8080\n'
+    )
+    path.write_text(before, encoding="utf-8")
+    store = config.Settings("p2ked", str(path))
+
+    store.save_ports("Midi Out: P2K", "Midi Out: P2K")
+
+    assert path.read_text(encoding="utf-8") == before
+    assert "tables" in capsys.readouterr().err
+
+
+def test_a_legacy_header_with_our_name_is_still_ours(tmp_path: Any) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(
+        "# p2ked local config - gitignored, safe to delete.\nchannel = 3\n",
+        encoding="utf-8",
+    )
+    store = config.Settings("p2ked", str(path))
+    assert store.load_channel() == 3
+    store.save_port("Midi Out: P2K", str(path))
+    assert store.load_port() == "Midi Out: P2K"
+
+
+def test_an_unrecognised_header_is_not_foreign(tmp_path: Any) -> None:
+    """An old build's em dash is not another tool.
+
+    Only a header that names a *different* tool makes a file foreign;
+    anything else is the caller's own, so the lenient upgrade path from a
+    locale-codec build keeps working.
+    """
+    path = tmp_path / "config.toml"
+    path.write_text(
+        "# s3ked local config — gitignored, safe to delete.\nchannel = 6\n",
+        encoding="utf-8",
+    )
+    store = config.Settings("s3ked", str(path))
+    assert store.load_channel() == 6
+
+
+def test_the_write_leaves_no_temporary_behind(tmp_path: Any) -> None:
+    path = str(tmp_path / "config.toml")
+    store = config.Settings("p2ked", path)
+    store.save_channel(2)
+
+    assert not [name for name in os.listdir(tmp_path) if name.endswith(".tmp")]
