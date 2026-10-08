@@ -316,17 +316,20 @@ nothing left to learn by asking again.
 **Use the remembered port, sweep when there is none, sweep on request.**
 `--scan` is that request.
 
-**A remembered port that does not answer is not a licence to sweep.** The
-guess is gone, but sweeping anyway would make a launch silently take the
-slow path for a reason the user did not ask about, and would then quietly
-overwrite the file it was told to trust. Naming `--scan` says what happened
-and what to do about it. It is the wrong answer to "the unit moved to
-another port", which is what USB re-enumeration causes: ALSA renumbers
-clients out from under a saved name.
+**A remembered port that does not answer falls back to the sweep, and says
+so.** The guess is gone and the slow path is taken, because the
+alternative -- stopping and asking the user to type `--scan` -- leaves a
+tool that cannot start for a reason the tool can see and fix itself. What
+must not happen is a *silent* fallback: that is indistinguishable, from the
+terminal, from the fast path having worked, and it is how a slow launch
+quietly becomes the normal one. `--scan` remains the explicit way to say "I
+know it moved, look again" (USB re-enumeration renumbers ALSA clients out
+from under a saved name), and it also skips the doomed probe of the stale
+port.
 
-**When it does fall back, it says so.** A silent fallback is
-indistinguishable, from the terminal, from the fast path having worked --
-which is how a slow launch quietly becomes the normal one.
+**When it does fall back, it says so.** A project may supply its own
+`on_fallback(port, error)` to name the reason in its own words; otherwise
+the library prints the family's one-liner.
 
 `vinsynlib.midi.open_remembered_or_swept` is this policy, written and
 tested once. It was a paragraph in rxved, a docstring in x5ded saying it

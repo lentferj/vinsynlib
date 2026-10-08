@@ -195,6 +195,7 @@ def open_remembered_or_swept(
     scan: bool = False,
     remember: Callable[[Any], None] | None = None,
     on_try: Callable[[str], None] | None = None,
+    on_fallback: Callable[[str, BaseException], None] | None = None,
 ) -> _Device:
     """Open the remembered port if it still answers, else sweep for one.
 
@@ -208,13 +209,16 @@ def open_remembered_or_swept(
     again. So: use the remembered port, sweep when there is none, sweep on
     request.
 
-    **A remembered port that does not answer is not a licence to sweep.**
-    The guess is gone, but sweeping anyway would make a launch silently
-    take the slow path for a reason the user did not ask about, and would
-    then quietly overwrite the file it was told to trust. Naming ``--scan``
-    says what happened and what to do about it. It is the wrong fix for
-    "the unit moved to another port", which is what USB re-enumeration
-    causes: ALSA renumbers clients out from under a saved name.
+    **A remembered port that does not answer falls back to the sweep, and
+    says so.** The guess is gone and the slow path is taken, because the
+    alternative -- stopping and asking the user to type ``--scan`` -- leaves
+    a tool that cannot start for a reason the tool can see and fix itself.
+    What must not happen is a *silent* fallback: that is indistinguishable,
+    from the terminal, from the fast path having worked, and it is how a
+    slow launch quietly becomes the normal one. ``--scan`` remains the
+    explicit way to say "I know it moved, look again" (USB re-enumeration
+    renumbers ALSA clients out from under a saved name), and it also skips
+    the doomed probe of the stale port.
 
     Ported from rxved's ``XvBridge.connect``, which was itself written the
     hard way -- its first version swept on every launch while its docstring
@@ -226,16 +230,24 @@ def open_remembered_or_swept(
     :class:`DeviceNotFound` if nothing answers at all. ``remember`` is
     called with the opened device afterwards, if given, and is where a
     project writes the pair it just learned.
+
+    The fallback is announced through ``on_fallback(port, error)`` when a
+    caller supplies it -- a project that wants to print the *reason* the
+    remembered port failed, and in its own words. ``on_try`` is the older
+    single-argument hook, kept so a caller that only wants the family's
+    one-line notice can pass that instead.
     """
     if remembered is not None and not scan:
         send_port, recv_port = remembered
         try:
             device = probe(send_port, recv_port)
-        except (DeviceError, OSError):
+        except (DeviceError, OSError) as exc:
             # The remembered port is gone. Fall through to the sweep, and
             # say so: a silent sweep here would look like the fast path
             # having worked.
-            if on_try is not None:
+            if on_fallback is not None:
+                on_fallback(send_port, exc)
+            elif on_try is not None:
                 on_try(f"{send_port} (remembered, did not answer)")
         else:
             return device

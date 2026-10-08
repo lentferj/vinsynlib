@@ -325,6 +325,32 @@ def test_the_fallback_says_so_rather_than_pretending_to_be_fast() -> None:
     assert "did not answer" in said[0]
 
 
+def test_the_fallback_can_report_the_reason_through_its_own_hook() -> None:
+    """A project that wants to print *why* the remembered port failed, in
+    its own words, uses ``on_fallback`` rather than the family's one-liner.
+    The project's hook wins when both are given."""
+
+    def probe(send: str, recv: str) -> FakeDevice:
+        raise midi.DeviceError("no output port named 'gone'")
+
+    def sweep(on_try: Any = None) -> FakeDevice:
+        return FakeDevice("found")
+
+    both: list[str] = []
+    heard: list[tuple[str, BaseException]] = []
+
+    midi.open_remembered_or_swept(
+        probe=probe,
+        sweep=sweep,
+        remembered=("gone", "gone"),
+        on_try=both.append,
+        on_fallback=lambda port, exc: heard.append((port, exc)),
+    )
+    assert heard and heard[0][0] == "gone"
+    assert "no output port named" in str(heard[0][1])
+    assert both == [], "on_fallback should replace the family notice"
+
+
 def test_the_fast_path_reports_nothing() -> None:
     """One Identity Request, and silence about it."""
 
