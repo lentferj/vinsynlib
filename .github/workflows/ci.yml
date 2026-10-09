@@ -31,6 +31,13 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install make -y
 
+      # python-rtmidi publishes no cp313 wheel, so on 3.13 uv builds it from
+      # sdist, and on Linux that needs the ALSA headers. macOS and Windows
+      # link against CoreMIDI and WinMM and need nothing here.
+      - name: Install ALSA headers (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
       - name: Sync dependencies
         run: uv sync --all-extras
 
