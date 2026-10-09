@@ -1,5 +1,9 @@
 [build-system]
-requires = ["setuptools>=61"]
+# >=77 for PEP 639: the SPDX ``license`` expression and ``license-files``
+# above are only understood from there, and an older setuptools either
+# refuses the string or writes the licence into the metadata wrongly --
+# which for a GPL distribution is the part that must be exact.
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
