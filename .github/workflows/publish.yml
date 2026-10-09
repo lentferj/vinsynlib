@@ -1,0 +1,102 @@
+# Publish vinsynlib to TestPyPI and PyPI with no stored token. PyPI
+# authenticates the upload against the GitHub OIDC identity of the job --
+# hence `id-token: write` on the two publishing jobs and nothing else. A
+# trusted publisher is keyed on (owner, repository, workflow file,
+# environment), so the registrations on pypi.org and test.pypi.org must
+# name THIS file and the environment used below exactly:
+#
+#   owner:        lentferj
+#   repository:   vinsynlib
+#   workflow:     publish.yml
+#   environment:  pypi   (https://pypi.org)  /  testpypi (https://test.pypi.org)
+#
+# The publishing action is a container action, so the publishing jobs run on
+# GNU/Linux; the build itself is pure Python and needs no platform.
+#
+# Build and publish are separate jobs on purpose. Building runs whatever is
+# in the source tree; only the publishing jobs receive the OIDC token, so a
+# compromised build step cannot reach an index. Both indices upload the
+# same artifact bytes that `build` produced.
+
+name: publish
+
+on:
+  # A GitHub Release publishes to PyPI. `workflow_dispatch` can rehearse on
+  # TestPyPI, or publish to PyPI without cutting a Release.
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Index to publish to
+        required: true
+        default: testpypi
+        type: choice
+        options:
+          - testpypi
+          - pypi
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      # The version comes from vinsynlib.__version__ (see pyproject.toml),
+      # so there is no second number here to keep in step.
+      - name: Build sdist and wheel, and check them
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+          python -m twine check dist/*
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: dist
+          path: dist/
+
+  # The rehearsal. TestPyPI's version numbers can be reused, so a mistake
+  # here costs nothing -- which is the whole reason it goes first.
+  testpypi:
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/vinsynlib
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  # PyPI. A version published here can never be revised or removed, so this
+  # job exists only after the TestPyPI rehearsal has been installed and
+  # checked.
+  pypi:
+    needs: build
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi')
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/vinsynlib
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
