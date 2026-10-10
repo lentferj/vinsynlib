@@ -178,6 +178,45 @@ def test_a_config_save_with_no_path_is_reported(tmp_path: Any) -> None:
     assert "save_channel" in offenders[0]
 
 
+def test_a_two_value_writer_with_no_path_is_reported(tmp_path: Any) -> None:
+    """The arity is per method, and ``save_ports`` takes two values first.
+
+    A rule that reads "two positional arguments means a path" passes
+    ``config.save_ports("In", "Out")`` -- which writes ``config.toml`` into
+    the checkout, in the one writer most likely to be called.
+    """
+    test = tmp_path / "tests"
+    test.mkdir()
+    (test / "test_x.py").write_text(
+        "import config\n"
+        "def test_it():\n"
+        "    config.save_ports('In', 'Out')\n"
+        "    config.save_ports('In', 'Out', 'c.toml')\n"
+        "    config.save_ports('In', 'Out', path='c.toml')\n",
+        encoding="utf-8",
+    )
+    offenders = devchecks.config_saves_without_path(str(test))
+    assert len(offenders) == 1
+    assert "save_ports" in offenders[0]
+
+
+def test_a_rename_of_the_module_is_not_examined(tmp_path: Any) -> None:
+    """The check reads calls on a name bound to ``config``.
+
+    A test that imports the module under another spelling is outside its
+    reach, and that is stated in the docstring rather than pretended away.
+    """
+    test = tmp_path / "tests"
+    test.mkdir()
+    (test / "test_x.py").write_text(
+        "from vinsynlib import config as store\n"
+        "def test_it():\n"
+        "    store.save_ports('In', 'Out')\n",
+        encoding="utf-8",
+    )
+    assert devchecks.config_saves_without_path(str(test)) == []
+
+
 def test_a_sibling_projects_package_is_reported(tmp_path: Any) -> None:
     """emorphed had a function importing `nano.config` -- nanosyned's
     package, which is not installed beside it."""

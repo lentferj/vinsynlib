@@ -64,12 +64,51 @@ def iter_test_sources(test_dir: str) -> Iterator[tuple[str, ast.Module]]:
             yield name, ast.parse(handle.read())
 
 
+#: How many positional arguments each writer takes before ``path``. A table
+#: rather than a single number, because the arity is not uniform:
+#: ``save_ports`` takes two port names and ``path`` is the third. A call that
+#: passes no more than this many positional arguments, and no ``path=``
+#: keyword, has no path and writes ``./config.toml`` into the checkout.
+#:
+#: A project's own writer over the same store is listed under its own name.
+#: An unlisted one falls back to :data:`_DEFAULT_WRITER_ARITY`.
+_WRITER_ARITY: dict[str, int] = {
+    # vinsynlib's own.
+    "update": 0,
+    "save_channel": 1,
+    "save_port": 1,
+    "save_recv_port": 1,
+    "save_device_id": 1,
+    "save_ports": 2,
+    # The family's wrappers over the same store.
+    "save_last_port": 1,
+    "save_last_recv_port": 1,
+    "save_exclusive_channel": 1,
+    "save_last_ports": 2,
+}
+
+#: Assumed for a writer :data:`_WRITER_ARITY` has not been told about. One is
+#: the shape these methods share -- the value or values, then the path -- and
+#: a project that grows a two-value writer adds its name above. Being wrong
+#: in this direction misses a call rather than reporting one that is fine.
+_DEFAULT_WRITER_ARITY = 1
+
+
 def config_saves_without_path(test_dir: str) -> list[str]:
     """Test calls of ``config.save_*`` that do not name a file.
 
     Returns one ``file:lineno name`` string per offender. A save with no
     path writes ``config.toml`` into whatever directory pytest was started
     from, which is the checkout in practice.
+
+    Deciding whether a call names a path is per-method, not one number:
+    ``save_ports(send, recv, path)`` takes two values before it, so a
+    "two arguments means it has a path" rule reads
+    ``config.save_ports("In", "Out")`` as safe and lets it write into the
+    checkout. See :data:`_WRITER_ARITY`.
+
+    Only calls on a name bound to ``config`` are examined, so a test that
+    imports the module under another spelling is not covered.
     """
     offenders: list[str] = []
     for name, tree in iter_test_sources(test_dir):
@@ -82,7 +121,8 @@ def config_saves_without_path(test_dir: str) -> list[str]:
                 and node.func.value.id == "config"
             ):
                 continue
-            named = len(node.args) >= 2 or any(
+            before = _WRITER_ARITY.get(node.func.attr, _DEFAULT_WRITER_ARITY)
+            named = len(node.args) > before or any(
                 kw.arg == "path" for kw in node.keywords
             )
             if not named:
