@@ -135,11 +135,33 @@ undeclared is exactly the drift it guards against. `SILENT_SUFFIX` is
 likewise unlisted (one user). The same applies to `Flag.options()`,
 `Flag.option` and `Subcommand.extra`.
 
-### 1.2.2 `devchecks.own_namespaces` is `frozenset(packages)` — OPEN
+### 1.2.2 `devchecks.own_namespaces` is `frozenset(packages)` — REMOVED 2026-10-10
 
-A function whose whole body is a constructor call. One project uses it;
-delete it and that project in the same change, or give it a reason to
-exist.
+A function whose whole body is a constructor call. **The review's count was
+wrong**: it claimed one project used it. The audit found **zero**.
+
+Four independent confirmations that nothing consumes it:
+
+- no import of the name in any of the ten siblings, under any spelling, in
+  any file type (`grep -rn` across all 71 repos, case-insensitive, by
+  substring, excluding the caches);
+- `git log -S "own_namespaces" --all` in all eleven repos: no commit outside
+  vinsynlib has ever added the string. Nothing was deleted and left behind;
+- it has been out of `devchecks.__all__` since `82ee475` -- the very commit
+  that set out to "declare the public names the projects actually import"
+  -- and no project imported it even during the window it was declared;
+- line 135 of `devchecks.py` was never measured in vinsynlib's own coverage
+  run. The body had never executed.
+
+So there was no second project to delete, and removal is a one-file change.
+`foreign_imports` and `check_foreign_imports` take `own` as an
+`Iterable[str]` and widen it with `set(own)`, so a tuple, a list and a
+`frozenset` are all equivalent at the eleven places the family actually
+passes one -- which are hand-written tuples like `own=("emorphed", "emu",
+"vinsynlib")`, already in the direct form.
+
+One thing the audit settled on the way: **`devchecks` has eight consumers,
+not ten.** `k2kremote` and `p2ked` have no reference to it in any file.
 
 ### 1.2.3 `spec.Subcommand.extra` is never populated — FIXED 2026-10-10
 

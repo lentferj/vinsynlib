@@ -88,6 +88,14 @@ break for its own sake; the two that are breaks are listed under
   A project whose own writer over the settings store is not in it falls back
   to arity 1, the shape they share.
 
+- **`devchecks.own_namespaces` removed.** It was `frozenset(packages)` with
+  no caller anywhere in the family -- no import in any of the ten siblings
+  under any spelling, nothing in their git history, and its body never
+  measured in this project's own coverage run. It had been out of
+  `devchecks.__all__` since 0.2.0, so nothing could break by losing it.
+  Nothing replaces it: `foreign_imports` takes `own` as any `Iterable[str]`
+  and the family passes hand-written tuples, which is the direct form.
+
 - **Twelve tests**, 170 to 182. The two gaps that mattered:
   `keys.legend_from_bindings` was unreached by the suite entirely and is
   the API that keeps a tool's legend and its `BINDINGS` from drifting into

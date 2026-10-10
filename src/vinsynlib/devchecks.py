@@ -130,11 +130,6 @@ def config_saves_without_path(test_dir: str) -> list[str]:
     return offenders
 
 
-def own_namespaces(*packages: str) -> frozenset[str]:
-    """The top-level names a project owns, given its package names."""
-    return frozenset(packages)
-
-
 def foreign_imports(
     path: str,
     *,
