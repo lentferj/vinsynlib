@@ -35,16 +35,18 @@ it", the flag is now either named here or gone.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 __all__ = [
     "CANONICAL_FLAGS",
     "EXIT_ERROR",
     "EXIT_OK",
     "EXIT_USAGE",
+    "SILENT_SUFFIX",
     "SUBCOMMANDS",
     "Flag",
     "Subcommand",
+    "aliases_for",
     "flag_help",
     "flag_names",
     "subcommand_names",
@@ -211,9 +213,10 @@ class Subcommand:
     needs: str = "device"
     #: True when it changes the unit, and so must not run unconfirmed.
     writes: bool = False
-    #: The argparse group this command belongs to, if any.
+    #: The argparse group this command belongs in, if any. The union of the
+    #: groups any tool uses, so a tool can tell which of its own commands
+    #: sit in a shared group without hard-coding the spelling.
     group: str = ""
-    extra: dict[str, str] = field(default_factory=dict)
 
 
 def _s(  # noqa: PLR0913
@@ -306,9 +309,20 @@ SILENT_SUFFIX = " (silent)"
 
 
 def flag_names(*, tier: str = "browser") -> tuple[str, ...]:
-    """The canonical option names, for one tier."""
+    """The canonical option names for one tier.
+
+    The editor tier is a **superset** of the browser tier, not an
+    alternative to it: a tool that edits has every shared option plus
+    ``--allow-write``. Returning only the editor-*only* flags would ask an
+    editor to check one flag out of fifteen, which is the opposite of what
+    the name promises and was the shape of this until 2026-10-09.
+    """
+    if tier not in ("browser", "editor"):
+        raise ValueError(f"unknown tier {tier!r}; have 'browser' or 'editor'")
     return tuple(
-        f.name for f in CANONICAL_FLAGS if tier != "editor" or f.editor_only
+        f.name
+        for f in CANONICAL_FLAGS
+        if tier == "editor" or not f.editor_only
     )
 
 

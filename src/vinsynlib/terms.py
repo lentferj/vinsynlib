@@ -230,5 +230,11 @@ def for_app(app_name: str) -> Terminology:
 
 
 def register(terms: Terminology) -> None:
-    """Record one tool's vocabulary in :data:`REGISTRY`."""
+    """Record one tool's vocabulary in :data:`REGISTRY`.
+
+    The registry is process-global and there is deliberately no way to
+    unregister: every project calls this once, at import time, and a reset
+    would only ever be wanted by a test. A test that registers a name
+    leaves it there for the rest of the run.
+    """
     REGISTRY[terms.app_name] = terms

@@ -59,7 +59,7 @@ from typing import Any
 
 from . import keys as keys_module
 from . import spec
-from .terms import Terminology
+from .terms import FAMILY, Terminology
 
 __all__ = [
     "check_bindings",
@@ -229,8 +229,10 @@ def check_legend(
     select: bool = True,
 ) -> list[str]:
     """The shared hints appear, in the shared order, with extras in place."""
-    expected = keys_module.legend(
-        extras, favourites=favourites, channel=channel, select=select
+    expected = list(
+        keys_module.legend(
+            extras, favourites=favourites, channel=channel, select=select
+        )
     )
     problems: list[str] = []
     for hint in expected:
@@ -241,17 +243,15 @@ def check_legend(
             problems.append(
                 f"the legend shows {hint!r}, which is not in the family's"
             )
-    shared = [
+    # Order. `shared` is the blocks this tool owns that the family also
+    # defines; `order` is the same set in the family's order. Comparing the
+    # block sequence against it catches a reordering, and a block that
+    # appears twice shows up as a difference rather than passing.
+    shared = {
         b for b in blocks if b in keys_module.CANONICAL_LEGEND or b in extras
-    ]
-    order = [
-        b
-        for b in keys_module.legend(
-            extras, favourites=favourites, channel=channel, select=select
-        )
-        if b in shared
-    ]
-    if [b for b in shared if b in order] != order:
+    }
+    order = [b for b in expected if b in shared]
+    if [b for b in blocks if b in shared] != order:
         problems.append(
             "the legend's hints are not in the family's order: expected "
             + ", ".join(order)
@@ -271,4 +271,15 @@ def check_terms(terms: Terminology) -> list[str]:
         )
     except ValueError as exc:
         problems.append(str(exc))
+    # `Terminology.word` looks in `own` *before* FAMILY, so a tool's own
+    # word silently shadows the family's when the two share a concept. That
+    # is the one collision the module docstring warns about, and it was
+    # invisible here because the check never looked at `own`.
+    for concept in terms.own:
+        if concept in FAMILY:
+            problems.append(
+                f"{terms.app_name}: {concept!r} is a family word "
+                f"({FAMILY[concept]!r}), so {terms.app_name} cannot have its "
+                f"own spelling of it in Terminology.own"
+            )
     return problems

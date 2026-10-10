@@ -387,6 +387,90 @@ def test_checking_a_flag_nobody_declared_is_an_error_not_a_pass() -> None:
     )
 
 
+def test_a_flag_the_tool_should_not_offer_is_reported() -> None:
+    """The refusing direction of `check_flags`, which nothing exercised."""
+    without = cli.make_parser("x", "d")
+    cli.add_common_arguments(without, scan=False)
+    assert conformance.check_flags(without, forbidden=["scan"]) == []
+
+    with_it = cli.make_parser("x", "d")
+    cli.add_common_arguments(with_it, scan=True)
+    assert conformance.check_flags(with_it, forbidden=["scan"]) == [
+        "--scan should not be offered by this tool"
+    ]
+
+
+def test_a_tool_word_that_shadows_a_family_word_is_reported() -> None:
+    """`word()` looks in `own` before FAMILY, so the shadow is silent.
+
+    A tool that declares its own spelling of "favourite" would quietly
+    replace the family's everywhere `word()` is called, and nothing else in
+    the checks could see it.
+    """
+    lexicon = terms.Terminology(
+        app_name="x5ded",
+        sound="preset",
+        container="bank",
+        own={"favourite": "fav", "pad": "sample"},
+    )
+    assert conformance.check_terms(lexicon) == [
+        "x5ded: 'favourite' is a family word ('favourite'), so x5ded cannot "
+        "have its own spelling of it in Terminology.own"
+    ]
+
+
+def test_the_legend_can_be_built_from_a_classs_bindings() -> None:
+    """`legend_from_bindings` had no test at all.
+
+    It is the API a tool uses to keep its legend and its BINDINGS from
+    drifting into two lists, and it was entirely unreached by the suite.
+    """
+
+    class _App:
+        BINDINGS = (_Binding("f", "toggle_favorite", description="favourite"),)
+
+    assert keys.legend_from_bindings(
+        _App.BINDINGS, press_names={"f": "f"}
+    ) == ["f favourite"]
+
+
+def test_legend_from_bindings_skips_what_is_not_shown() -> None:
+    """A key with no description, and a hidden one, are both left out."""
+
+    class _App:
+        BINDINGS = (
+            _Binding("f", "toggle_favorite", description="favourite"),
+            _Binding("x", "mine", description=""),
+            _Binding("y", "hidden", description="secret", show=False),
+        )
+
+    assert keys.legend_from_bindings(_App.BINDINGS) == ["f favourite"]
+
+
+def test_a_subcommand_nobody_declared_is_an_error_not_an_empty_tuple() -> None:
+    assert spec.aliases_for("banks") == ("groups", "regions", "roms")
+    try:
+        spec.aliases_for("wibble")
+    except KeyError as exc:
+        assert "wibble" in str(exc)
+    else:  # pragma: no cover - the guard is the point
+        raise AssertionError("an unknown subcommand must be refused")
+
+
+def test_registry_lookups_refuse_a_tool_that_has_not_declared() -> None:
+    """`for_app` raises rather than inventing a vocabulary.
+
+    A tool that has not said what its instrument calls things has not
+    finished joining the family, and a default would let it drift.
+    """
+    try:
+        terms.for_app("a tool that never registered")
+    except KeyError as exc:
+        assert "has not declared a Terminology" in str(exc)
+    else:  # pragma: no cover - the guard is the point
+        raise AssertionError("an undeclared tool must be refused")
+
+
 # --- --version ---------------------------------------------------------------
 
 
