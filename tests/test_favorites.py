@@ -107,8 +107,40 @@ def test_a_rating_outside_the_scale_is_refused(store: Any) -> None:
 
 def test_tags_are_trimmed_and_deduplicated(store: Any) -> None:
     store.set_tags("A", 1, " pad , Pad ,lead ,")
-    assert store.get("A", 1).tags == "pad, lead"
-    assert store.get("A", 1).tag_list == ["pad", "lead"]
+    got = store.get("A", 1)
+    assert got is not None
+    assert got.tags == "pad, lead"
+    assert got.tag_list == ["pad", "lead"]
+
+
+def test_annotating_a_slot_that_is_not_a_favourite_favourites_it(
+    store: Any,
+) -> None:
+    """The family's contract, pinned here rather than left implied.
+
+    ``set_*`` routes through ``add``, so annotating a slot nobody has
+    favourited makes it one. kwsed tests this directly
+    (``test_setting_on_something_not_favourited_creates_it``), so it is a
+    decision and not a side effect -- an attempt to make these annotate-only
+    was reverted on 2026-10-10 because of that test.
+    """
+    assert store.set_note("A", 1, "made a note") is None
+    got = store.get("A", 1)
+    assert got is not None
+    assert got.note == "made a note"
+    assert len(store) == 1
+
+
+def test_a_rating_out_of_range_is_refused_by_add_too(store: Any) -> None:
+    """``set_rating`` checked the range; ``add`` did not, and stored it.
+
+    The column carries no CHECK constraint, so the range is only ever as
+    good as the code that writes it.
+    """
+    with pytest.raises(ValueError, match="0-5"):
+        store.add("A", 1, rating=6)
+    with pytest.raises(ValueError, match="0-5"):
+        store.add("A", 1, rating=-1)
 
 
 def test_with_tag_matches_whole_tags_only(store: Any) -> None:

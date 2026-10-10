@@ -63,6 +63,7 @@ thing that must not be lost to a ``git clean`` in a checkout.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import sqlite3
 import sys
@@ -114,6 +115,15 @@ def data_dir(app_name: str = APP_NAME) -> str:
       own documentation warns against network filesystems for the same
       reason. Roaming would be the right answer for a small settings file
       and is the wrong one for a database.
+
+      When ``%LOCALAPPDATA%`` is absent -- a stripped service account --
+      ``%APPDATA%`` is used anyway, and that is a decision rather than an
+      oversight: the profile that would corrupt the database is the profile
+      that *sets* ``%LOCALAPPDATA%``, so an account without it is not on a
+      roaming one either. The alternative is the XDG layout, which on
+      Windows is a path no other tool on the machine knows how to find.
+      A wrong-looking but familiar directory beats a right one nobody can
+      find, and both beat refusing to start.
 
     * **macOS** -- ``~/Library/Application Support/<app>``, which is where
       Apple's File System Programming Guide puts application data that is
@@ -231,6 +241,25 @@ class _LockedConnection:
         with self._lock:
             self._db.commit()
 
+    @contextlib.contextmanager
+    def transaction(self) -> Iterator[None]:
+        """Run a block of statements as one transaction.
+
+        The lock is held for the block, which is what makes it safe to call
+        from a worker: the next thread to reach for the database finds the
+        whole batch done rather than half of it. Re-entrant, so a statement
+        inside the block takes the lock again without deadlocking -- but a
+        caller that commits inside the block (``add`` does) ends the
+        transaction early, so those should not be using this.
+        """
+        with self._lock:
+            try:
+                yield
+            except BaseException:
+                self._db.rollback()
+                raise
+            self._db.commit()
+
     def close(self) -> None:
         with self._lock:
             self._db.close()
@@ -258,9 +287,7 @@ class Favorite:
     @property
     def tag_list(self) -> list[str]:
         """The tags, split and stripped."""
-        return [
-            t for t in (part.strip() for part in self.tags.split(",")) if t
-        ]
+        return _split_tags(self.tags)
 
 
 class Favorites:
@@ -480,19 +507,31 @@ class Favorites:
         which would make "pad" match "padded" and "lead" match
         "misleading". Tags are a short comma-separated string; filtering
         them in Python costs nothing at this size and is correct.
+
+        The rows are filtered *before* each is turned into a
+        :class:`Favorite`, so a bank that carries no match builds no
+        objects.
         """
         wanted = tag.strip().lower()
         return [
-            fav
-            for fav in self.all(order="bank")
-            if wanted in {t.lower() for t in fav.tag_list}
+            _to_favorite(row)
+            for row in self._db.execute(
+                "SELECT * FROM favorites WHERE active = 1 "
+                "ORDER BY bank_id, number"
+            )
+            if wanted in _tag_set(row["tags"])
         ]
 
     def tags(self) -> dict[str, int]:
-        """Every tag in use, with how many favourites carry it."""
+        """Every tag in use, with how many favourites carry it.
+
+        Selects the one column it reads rather than every row whole.
+        """
         counts: dict[str, int] = {}
-        for fav in self.all(order="bank"):
-            for tag in fav.tag_list:
+        for row in self._db.execute(
+            "SELECT tags FROM favorites WHERE active = 1"
+        ):
+            for tag in _split_tags(row["tags"]):
                 counts[tag] = counts.get(tag, 0) + 1
         return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
 
@@ -513,7 +552,14 @@ class Favorites:
         An upsert that **preserves ``added``** on an existing row: re-adding
         a favourite is an edit, not a re-acquisition, and quietly resetting
         the date would corrupt the one ordering the user cannot reconstruct.
+
+        ``rating`` is 0-5 and is checked here, not only in
+        :meth:`set_rating`. The column has no CHECK constraint, so this is
+        the only thing standing between a caller and a favourites database
+        holding a rating of 99.
         """
+        if not 0 <= int(rating) <= 5:
+            raise ValueError(f"rating {rating} is outside 0-5")
         existing = self._row(bank_id, number)
         added = existing.added if existing is not None else time.time()
         self._db.execute(
@@ -596,15 +642,32 @@ class Favorites:
         return True
 
     def set_rating(self, bank_id: str, number: int, rating: int) -> None:
-        """Set a slot's rating, 0-5, leaving its other annotations alone."""
+        """Set a slot's rating, 0-5, leaving its other annotations alone.
+
+        Note what this does *not* do: it does not create a favourite, and it
+        does not refuse to. It routes through :meth:`add`, which favourites
+        a slot that is not one — so ``set_rating`` on a slot nobody
+        favourited makes it one. That is deliberate rather than accidental,
+        and it is pinned by a test in kwsed
+        (``test_setting_on_something_not_favourited_creates_it``), which is
+        why an attempt to make these annotate-only was reverted on
+        2026-10-10. If the family ever wants the other contract, that test
+        is the thing to move first.
+        """
         if not 0 <= rating <= 5:
             raise ValueError(f"rating {rating} is outside 0-5")
         self.add(
-            bank_id, number, **_merge(self.get(bank_id, number), rating=rating)
+            bank_id,
+            number,
+            **_merge(self.get(bank_id, number), rating=rating),
         )
 
     def set_tags(self, bank_id: str, number: int, tags: str) -> None:
-        """Set a slot's tags, leaving its other annotations alone."""
+        """Set a slot's tags, leaving its other annotations alone.
+
+        As with :meth:`set_rating`, a slot that is not a favourite becomes
+        one. See that method's docstring for why.
+        """
         self.add(
             bank_id,
             number,
@@ -612,7 +675,11 @@ class Favorites:
         )
 
     def set_note(self, bank_id: str, number: int, note: str) -> None:
-        """Set a slot's note, leaving its other annotations alone."""
+        """Set a slot's note, leaving its other annotations alone.
+
+        As with :meth:`set_rating`, a slot that is not a favourite becomes
+        one. See that method's docstring for why.
+        """
         self.add(
             bank_id, number, **_merge(self.get(bank_id, number), note=note)
         )
@@ -623,18 +690,23 @@ class Favorites:
         Used after a catalog is generated or a bank is read from the device,
         so that favourites made before there were any names stop showing
         "--". ``lookup(bank_id, number)`` returns a name or ``None``.
+
+        One transaction, because a re-label touches every row it changes and
+        a commit per row turns a 500-favourite import into 500 fsyncs. Only
+        :meth:`_LockedConnection.execute` is used inside it: ``add`` and
+        friends commit, which would end the batch early.
         """
         changed = 0
-        for fav in self.all(order="bank") + self.dormant():
-            fresh = lookup(fav.bank_id, fav.number)
-            if fresh and fresh != fav.name:
-                self._db.execute(
-                    "UPDATE favorites SET name = ? WHERE bank_id = ? AND number = ?",
-                    (fresh, fav.bank_id, fav.number),
-                )
-                changed += 1
-        if changed:
-            self._db.commit()
+        with self._db.transaction():
+            for fav in self.all(order="bank") + self.dormant():
+                fresh = lookup(fav.bank_id, fav.number)
+                if fresh and fresh != fav.name:
+                    self._db.execute(
+                        "UPDATE favorites SET name = ? "
+                        "WHERE bank_id = ? AND number = ?",
+                        (fresh, fav.bank_id, fav.number),
+                    )
+                    changed += 1
         return changed
 
 
@@ -691,12 +763,32 @@ def _to_favorite(row: sqlite3.Row) -> Favorite:
     )
 
 
+def _split_tags(tags: str) -> list[str]:
+    """One row's tag text, trimmed and in order, empties dropped.
+
+    Duplicates are kept, deliberately: a row that says ``"a, a"`` carries
+    the tag twice as far as :meth:`Favorites.tags` counting is concerned,
+    and silently de-duplicating here would make that count lie.
+    """
+    return [part.strip() for part in tags.split(",") if part.strip()]
+
+
+def _tag_set(tags: str) -> set[str]:
+    """One row's tag text as comparable names.
+
+    ``_split_tags`` lower-cased, for :meth:`Favorites.with_tag`
+    """
+    return {tag.lower() for tag in _split_tags(tags)}
+
+
 def _merge(existing: Favorite | None, **changes: Any) -> dict[str, Any]:
     """Fields for :meth:`Favorites.add` that change one thing, keep the rest.
 
     Without this, setting a rating on a favourite would blank its tags and
     note, because ``add`` takes every field and defaults the ones it is not
-    given.
+    given. This is also why ``set_*`` *creates* a favourite when there is
+    none: ``_merge`` on ``None`` produces the empty defaults and ``add``
+    upserts, which the family has decided is what it wants.
     """
     base: dict[str, Any] = {
         "name": existing.name if existing else "",
