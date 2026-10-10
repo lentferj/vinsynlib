@@ -305,6 +305,19 @@ def test_a_file_with_no_gate_at_all_is_named(tmp_path: Any) -> None:
     ]
 
 
+def test_a_path_that_is_not_there_says_so(tmp_path: Any) -> None:
+    """A project adopting this check will get the path wrong at least once.
+
+    Reporting that as "has no _release_parts to check" sends the reader
+    looking in the wrong file rather than at the wrong path.
+    """
+    missing = tmp_path / "not_here.py"
+    problems = devchecks.release_parts_drift(str(missing))
+    assert len(problems) == 1
+    assert "could not be read" in problems[0]
+    assert str(missing) in problems[0]
+
+
 # --- the checks a project runs against itself --------------------------------
 
 

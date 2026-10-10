@@ -208,17 +208,27 @@ def _canonical_path() -> str:
     )
 
 
-def _parts_function(path: str) -> ast.FunctionDef | None:
-    """The top-level ``_release_parts`` in one file, or ``None``."""
+def _parts_function(path: str) -> tuple[ast.FunctionDef | None, str | None]:
+    """The top-level ``_release_parts`` in one file, and why there isn't one.
+
+    The two failure cases are separated on purpose. A project adopting this
+    check gets the path wrong at least once, and "has no _release_parts to
+    check" for a file that does not exist sends the reader looking in the
+    wrong place entirely.
+    """
     try:
         with open(path, encoding="utf-8") as handle:
-            tree = ast.parse(handle.read())
-    except (OSError, SyntaxError):
-        return None
+            source = handle.read()
+    except OSError as exc:
+        return None, f"{path} could not be read ({exc})"
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        return None, f"{path} is not valid Python ({exc})"
     for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name == _PARTS_FUNCTION:
-            return node
-    return None
+            return node, None
+    return None, f"{path} has no {_PARTS_FUNCTION} to check"
 
 
 def _normalised(node: ast.FunctionDef) -> ast.FunctionDef:
@@ -296,9 +306,9 @@ def release_parts_invariants(path: str) -> list[str]:
     * two parameters -- ``width`` is the width of the comparison and has to
       come from the caller.
     """
-    function = _parts_function(path)
+    function, missing = _parts_function(path)
     if function is None:
-        return [f"{path} has no {_PARTS_FUNCTION} to check"]
+        return [missing]  # type: ignore[list-item]
     problems: list[str] = []
 
     names = [arg.arg for arg in function.args.args]
@@ -407,13 +417,13 @@ def release_parts_drift(entry_path: str) -> list[str]:
     A failing message carries a diff, not just a verdict: the point is to say
     *what* drifted, and a diff does that better than an enumeration would.
     """
-    theirs = _parts_function(entry_path)
+    theirs, missing = _parts_function(entry_path)
     if theirs is None:
-        return [f"{entry_path} has no {_PARTS_FUNCTION} to check"]
+        return [missing]  # type: ignore[list-item]
     canonical = _canonical_path()
-    ours = _parts_function(canonical)
+    ours, missing = _parts_function(canonical)
     if ours is None:  # pragma: no cover - the library's own file
-        return [f"{canonical} has no {_PARTS_FUNCTION} to check"]
+        return [missing]  # type: ignore[list-item]
 
     problems = release_parts_invariants(entry_path)
     if ast.dump(_normalised(ours), include_attributes=False) == ast.dump(
