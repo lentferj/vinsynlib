@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Any
 
 import pytest
@@ -158,6 +159,33 @@ def test_installing_a_handler_off_the_main_thread_does_not_raise() -> None:
     thread.start()
     thread.join()
     assert errors == []
+
+
+# --- paths that depend on what is installed ----------------------------------
+
+
+def test_no_midi_stack_is_reported_rather_than_an_import_error(
+    monkeypatch: Any,
+) -> None:
+    """`_rtmidi`'s ImportError arm, which no test reached.
+
+    An offline command on a machine with no MIDI stack is a normal way to
+    run these tools, and the whole point of importing rtmidi lazily is that
+    it works. Hiding the module is the only way to find out.
+    """
+    monkeypatch.setitem(sys.modules, "rtmidi", None)
+    with pytest.raises(midi.MidiUnavailable, match="python-rtmidi"):
+        midi._rtmidi()
+
+
+def test_a_backend_that_will_not_build_is_one_thing_to_catch(
+    monkeypatch: Any,
+) -> None:
+    """A host with no ALSA sequencer raises MidiUnavailable, like a
+    missing module does."""
+    monkeypatch.setattr(midi, "_rtmidi", lambda: None)
+    with pytest.raises(midi.MidiUnavailable, match="no MIDI backend"):
+        midi.list_ports()
 
 
 # --- the checks a project runs against itself --------------------------------

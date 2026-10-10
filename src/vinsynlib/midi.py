@@ -126,6 +126,10 @@ def list_ports() -> tuple[list[str], list[str]]:
     deleted before the error leaves: rtmidi leaks its backend handle
     otherwise, and on ALSA that shows up later as ports that cannot be
     reopened.
+
+    A *missing module* raises :class:`MidiUnavailable` from :func:`_rtmidi`
+    before either client is built, so there is nothing to close on that
+    path -- which is why there is no ``except MidiUnavailable`` in here.
     """
     rtmidi = _rtmidi()
     midi_in = None
@@ -134,8 +138,6 @@ def list_ports() -> tuple[list[str], list[str]]:
         midi_in = rtmidi.MidiIn()
         midi_out = rtmidi.MidiOut()
         return list(midi_in.get_ports()), list(midi_out.get_ports())
-    except MidiUnavailable:
-        raise
     except Exception as exc:
         raise MidiUnavailable(
             f"no MIDI backend available ({exc}). On Linux this needs an "
@@ -171,8 +173,8 @@ def likely_ports(
 
     A name hint cannot decide anything here and is not allowed to. Most of
     these instruments hang off a DIN cable behind whatever interface the
-    user happens to have, and on a bench that was a *different
-    manufacturer's* synth acting as the interface. No hint would ever have
+    user happens to have, and on a bench that has been a *different
+    manufacturer's* synth acting as the interface -- no hint would ever have
     matched it. The Identity Reply decides; this only changes the order
     ports are tried in.
     """
