@@ -260,9 +260,78 @@ compares characters, so it is both too strict (false-fails on the legitimate
 copy passes).
 
 **Live evidence the general problem is real:** five consumer working trees
-currently hold an untracked `config.toml` (`eosed`, `p2ked`, `rxved`, `s3ked`,
-`x5ded`) — exactly the failure `config_saves_without_path` exists to catch,
-produced by a test run and left to be found by hand.
+held an untracked `config.toml` when this was written (`eosed`, `p2ked`,
+`rxved`, `s3ked`, `x5ded`) — exactly the failure
+`config_saves_without_path` exists to catch, produced by a test run and left
+to be found by hand. They were removed on 2026-10-10; see the note in §3.
+
+---
+
+# 3. Adopting the version-gate check in the consumers — IMPLEMENTED AND READY, 2026-10-10
+
+`devchecks.release_parts_drift()` and `release_parts_invariants()` now exist
+in vinsynlib (0.3.0), and vinsynlib's own suite pins the canonical through
+the mirror self-test. What is left is one small change per consumer.
+
+**Do not sweep.** This guard has never run against a real consumer, so a
+flaw in it presents as ten indistinguishable red CIs with no way to tell
+"the check is wrong" from "the copy drifted". One at a time; the first merge
+is the validation of the check itself.
+
+Order:
+
+1. **rxved** — least hardware-bound, the same reasoning as the undo
+   ordering in §2.
+2. then the remaining nine in any order: emorphed, ensqsqed, eosed,
+   k2kremote, kwsed, nanosyned, p2ked, s3ked, x5ded.
+
+Per consumer, two things in one commit:
+
+```sh
+# 1. the floor, so the project has the function it is about to call.
+#    pyproject.toml:
+#       "vinsynlib>=0.1.0"  ->  "vinsynlib>=0.3.0"
+
+# 2. the test module, following the tests/test_config_paths.py precedent.
+#    tests/test_version_gate_copy.py:
+import os
+
+from vinsynlib import devchecks
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def test_the_version_gate_copy_has_not_drifted() -> None:
+    entry = os.path.join(HERE, os.pardir, os.pardir, "<package>", "entry.py")
+    assert not devchecks.release_parts_drift(entry)
+```
+
+`<package>` is the directory holding `entry.py` — `rxved` for rxved,
+`kwsed` for kwsed, and so on. Every consumer already runs
+`make check → pytest`, so no Makefile changes. Each has vinsynlib installed,
+so the import resolves.
+
+Notes for whoever does this:
+
+- **k2kremote and p2ked have no existing `devchecks` usage at all** (see
+  §1.2.2). They still only need the new test module; nothing else in that
+  project has to change.
+- After all ten, reconsider the propagator (`python -m vinsynlib.entrycheck
+  --write`). Not before: the function has changed once in its life, the
+  check names the offending invariant, and a generator that rewrites source
+  in ten repositories is surface area to save a copy-paste done twice.
+- The removal of the five stray `config.toml` files was reported to the
+  family here rather than in each consumer's own notes, because the reason
+  is one reason.
+
+## 4. Open, and not scheduled
+
+- **Undo: Option A, decided**, with the constraints in §2.6.1 and the order
+  of work in §2.6.2. Nothing built yet.
+- The remaining coverage gaps, all small error paths: `__init__.py:83`
+  (`minimum=()`), `conformance.py` 166/168/200/243/272-273,
+  `spec.py` 320-322/337, `cli.py` 240/256, `config.py` 214-215/292/336,
+  `favorites.py` 200/258-260/530-536/727.
 
 ### 1.2.8 `midi.likely_ports` docstring is truncated mid-sentence — FIXED 2026-10-10
 
