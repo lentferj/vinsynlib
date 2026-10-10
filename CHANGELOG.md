@@ -16,7 +16,7 @@ CI goes red rather than after. Each such entry is marked **stricter**.
 The reasoning behind almost every entry lives in `TODO.md`, which records
 the 2026-10-09 code review the 0.3.0 work came from.
 
-## [0.3.0] — unreleased
+## [0.3.0] — 2026-10-10
 
 Interfaces still moving, on the 0.x line. Nothing here is a deliberate
 break for its own sake; the two that are breaks are listed under
@@ -101,6 +101,23 @@ break for its own sake; the two that are breaks are listed under
   the API that keeps a tool's legend and its `BINDINGS` from drifting into
   two lists; and `conformance.check_terms` had no test at all. Coverage
   94% to 96%, with `keys.py` at 100%.
+
+- **`devchecks.release_parts_drift()` and `release_parts_invariants()`**,
+  the check that every project's copy of the version gate still matches the
+  library's. Each project carries its own copy on purpose — a gate must not
+  import the library it is checking — and nothing was checking that the
+  copies stayed identical. A drift lands in *one* tool, so the symptom was
+  "one browser is broken with this library and the other nine work", which
+  is a support ticket rather than a red build. The check normalises away the
+  two spellings that are not drift, compares the rest against the
+  **installed** library, and reports a diff rather than a verdict. The
+  invariants are held against one file at a time rather than as a
+  comparison, so the guard cannot be disarmed by editing the library's own
+  copy and propagating the edit — and vinsynlib's suite runs them against
+  its own copy for the same reason.
+
+  No consumer calls this yet. Adopting it is one small change each, and
+  `TODO.md` §3 records the order and the shape.
 
 ### Fixed
 
