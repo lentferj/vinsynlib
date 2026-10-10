@@ -16,6 +16,19 @@ CI goes red rather than after. Each such entry is marked **stricter**.
 The reasoning behind almost every entry lives in `TODO.md`, which records
 the 2026-10-09 code review the 0.3.0 work came from.
 
+## [0.3.1] — 2026-10-10
+
+A patch release, the same day as 0.3.0, because the first consumer to adopt
+the new check found a diagnostic worth fixing before the other nine did.
+
+- **`release_parts_drift` distinguishes an unreadable path from a missing
+  function.** Adopting the check means working out where a project's
+  `entry.py` sits relative to its test directory, and that gets done wrong at
+  least once. Reporting a file that is not there as "has no _release_parts to
+  check" sends the reader looking through the wrong file instead of at the
+  path. Found by eosed, the first adopter, whose `entry.py` is one level up
+  from `tests/` rather than two.
+
 ## [0.3.0] — 2026-10-10
 
 Interfaces still moving, on the 0.x line. Nothing here is a deliberate
