@@ -172,16 +172,75 @@ registry is process-global and that a test registering a name leaves it
 there for the rest of the run, so the next person to want a reset knows why
 there is nothing to call.
 
-### 1.2.7 `_release_parts` is duplicated eleven times — OPEN, needs a family decision
+### 1.2.7 `_release_parts` is duplicated eleven times — OPEN, audited 2026-10-10
 
-`vinsynlib/__init__.py` plus all ten consumer `entry.py` files carry a
-byte-identical copy. The duplication is *deliberate* — a version gate
-must not import the library it is checking, which is the bug that was
-review F1 in p2ked — but nothing marks those copies as "must stay
-identical", and they have already diverged once (the padding bug). A
-conformance check, or a generated file with a test that pins the expected
-source, would catch the next drift. Not a bug; a maintenance hazard with
-no guard.
+`vinsynlib/__init__.py` plus all ten consumer `entry.py` files carry a copy.
+The duplication is *deliberate* — a version gate must not import the library
+it is checking, which is the bug that was review F1 in p2ked.
+
+**The audit corrected the review.** The claim that the copies "have already
+diverged once (the padding bug)" is wrong. That bug was in the
+pre-`_release_parts` `is_compatible_version` — a hardcoded `[:3]`, an
+`except ValueError → False`, and a `[:len(minimum)]` truncation — and it was
+fixed in `4c02cfc`. `_release_parts` landed in all eleven files *already*
+carrying `[:width]`. The copies have never drifted. (Worth noting because the
+p2ked review's *proposed* fix used `break` on an empty component where the
+landed code uses `return None`, so the more dangerous variant was proposed
+and correctly never applied.)
+
+**Current state, measured:** all ten consumer copies are byte-for-byte
+identical (SHA-256 `cd8c669559c59640…`); the canonical differs from them in
+the parameter name (`version_string` vs `version`) and docstring wording
+only. Zero logic drift. So the item reads as a hazard the family has been
+lucky with, not as an overdue guard.
+
+**What a drift would do.** The failures are ugly and, importantly,
+asymmetric — a drifted copy lands in *one* tool, so the symptom is "s3ked is
+broken with this vinsynlib but the other nine work", which is a support
+ticket rather than a red build:
+
+| Drift | Failure |
+|---|---|
+| `tuple(...)` → `list(...)` | `TypeError` on `>=`; **all ten tools refuse to start** |
+| `return None` → `break`/`continue` on empty digits | the gate reports *compatible* for a version it cannot parse — the guess the docstring forbids |
+| anything letting a non-digit into `digits` | `ValueError` raised **by the guard**, the exact failure it exists to prevent |
+| reverting to the pre-`4c02cfc` algorithm | `error: eosed needs 0.2.0 or newer, and 0.2.0 is installed` — a message that is a lie |
+
+**Recommended guard — an AST check in `vinsynlib.devchecks`.** A new
+`release_parts_drift(entry_path)` alongside `foreign_imports` and
+`config_saves_without_path`, which is where this family already keeps shared
+checks. It parses the consumer's `entry.py` and the canonical at
+`os.path.dirname(vinsynlib.__file__)/__init__.py` — i.e. **the installed**
+library, which is what the gate runs against — drops each leading docstring,
+renames the first parameter to a sentinel so `version` vs `version_string` is
+neutralised, and compares `ast.dump(..., include_attributes=False)`. Plus
+four invariants asserted explicitly on the consumer's copy so a failure names
+the drift rather than dumping two ASTs: exactly two parameters with `width`
+last; the slice's upper bound is the `width` argument; the empty-digits branch
+is `return None`; the return is a `tuple(...)` over `parts + [0] * (width -
+len(parts))`.
+
+Runs as one new test module per consumer, `tests/test_version_gate_copy.py`,
+following the `tests/test_config_paths.py` precedent — every consumer already
+has a `make check → pytest` gate, so no Makefile changes. `vinsynlib` gains
+the mirror-image self-check that the canonical satisfies the same
+invariants, otherwise the guard can be defeated by editing the library's own
+copy and propagating. Updating a copy is then: edit the canonical, run the
+propagator (`python -m vinsynlib.entrycheck --write`), and let the failure
+messages name what to change — leaving the family red until it is run, which
+is the intended outcome.
+
+**Rejected alternative:** each consumer asserting
+`inspect.getsource(entry._release_parts) == CANONICAL_TEXT`. It needs a
+twelfth copy of the text, so the drift moves rather than disappears; it
+compares characters, so it is both too strict (false-fails on the legitimate
+`version_string` rename) and too weak (a semantically identical but reworded
+copy passes).
+
+**Live evidence the general problem is real:** five consumer working trees
+currently hold an untracked `config.toml` (`eosed`, `p2ked`, `rxved`, `s3ked`,
+`x5ded`) — exactly the failure `config_saves_without_path` exists to catch,
+produced by a test run and left to be found by hand.
 
 ### 1.2.8 `midi.likely_ports` docstring is truncated mid-sentence — FIXED 2026-10-10
 
