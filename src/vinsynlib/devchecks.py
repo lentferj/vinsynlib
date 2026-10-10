@@ -38,6 +38,8 @@ of this family, and a default would let it drift unnoticed.
 from __future__ import annotations
 
 import ast
+import copy
+import difflib
 import os
 import sys
 from collections.abc import Iterable, Iterator, Sequence
@@ -48,10 +50,18 @@ __all__ = [
     "config_saves_without_path",
     "foreign_imports",
     "iter_test_sources",
+    "release_parts_drift",
+    "release_parts_invariants",
 ]
 
 #: Third-party modules every project in the family legitimately imports.
 FAMILY_THIRD_PARTY = frozenset({"textual", "rtmidi", "rich", "vinsynlib"})
+
+#: The name of the private helper every project's ``entry.py`` carries. It is
+#: a copy *on purpose* -- a version gate must not import the library it is
+#: checking, because a library too old to contain the gate would raise, which
+#: is the exact failure the gate exists to prevent.
+_PARTS_FUNCTION = "_release_parts"
 
 
 def iter_test_sources(test_dir: str) -> Iterator[tuple[str, ast.Module]]:
@@ -181,3 +191,250 @@ def check_foreign_imports(
     for path in paths:
         out.extend(foreign_imports(path, own=own, third_party=third_party))
     return out
+
+
+# --- the version gate copies -------------------------------------------------
+#
+# Every project carries a copy of `_release_parts`. The duplication is
+# deliberate and must never be "fixed" by making the gate import the library
+# it checks. What it needs is a check that the copies stay identical, and
+# that is what this section is.
+
+
+def _canonical_path() -> str:
+    """The library's own ``__init__.py`` -- the copy everything must match."""
+    return os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "__init__.py"
+    )
+
+
+def _parts_function(path: str) -> ast.FunctionDef | None:
+    """The top-level ``_release_parts`` in one file, or ``None``."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            tree = ast.parse(handle.read())
+    except (OSError, SyntaxError):
+        return None
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == _PARTS_FUNCTION:
+            return node
+    return None
+
+
+def _normalised(node: ast.FunctionDef) -> ast.FunctionDef:
+    """A copy of ``node`` with the two spellings that are not drift erased.
+
+    The library names its first parameter ``version_string`` because its
+    public function does; every project names it ``version``. The docstring's
+    wording differs for the same reason. Neither is a difference in
+    behaviour, so both are erased -- and nothing else is, which is what makes
+    the comparison worth running.
+    """
+    first = node.args.args[0].arg
+    clone = copy.deepcopy(node)
+    body = clone.body
+    if (
+        body
+        and isinstance(body[0], ast.Expr)
+        and isinstance(body[0].value, ast.Constant)
+    ):
+        clone.body = body[1:]
+    for arg in clone.args.args:
+        if arg.arg == first:
+            arg.arg = "first"
+    for inner in ast.walk(clone):
+        if isinstance(inner, ast.Name) and inner.id == first:
+            inner.id = "first"
+    return clone
+
+
+def _guard_on(node: ast.FunctionDef, name: str) -> ast.If | None:
+    """The ``if not <name>:`` in one function, if there is one."""
+    for inner in ast.walk(node):
+        if not isinstance(inner, ast.If):
+            continue
+        test = inner.test
+        if (
+            isinstance(test, ast.UnaryOp)
+            and isinstance(test.op, ast.Not)
+            and isinstance(test.operand, ast.Name)
+            and test.operand.id == name
+        ):
+            return inner
+    return None
+
+
+def _refuses(arm: ast.If) -> bool:
+    """Whether an ``if`` arm's body is exactly ``return None``."""
+    return bool(arm.body) and all(
+        isinstance(stmt, ast.Return)
+        and isinstance(stmt.value, ast.Constant)
+        and stmt.value.value is None
+        for stmt in arm.body
+    )
+
+
+def release_parts_invariants(path: str) -> list[str]:
+    """The four things any project's ``_release_parts`` must keep true.
+
+    Checked against the copy in **one file**, and deliberately not against
+    the library's own: if both sides of a comparison are wrong the
+    comparison passes, so the library has to be held to these separately or
+    the whole guard can be disarmed by editing the canonical and propagating
+    the edit.
+
+    Each invariant is here because breaking it produces a specific bad
+    outcome rather than a general one:
+
+    * a component with no leading digit **refused** rather than skipped --
+      a ``break`` there reports a version it could not read as *compatible*,
+      which is the guess the docstring exists to forbid, and it fails open;
+    * the split bounded by ``width`` -- a hardcoded ``[:3]`` silently
+      truncated any comparison wider than three components;
+    * a **tuple** returned -- a list raises ``TypeError`` against a MINIMUM
+      and stops every tool that uses it;
+    * two parameters -- ``width`` is the width of the comparison and has to
+      come from the caller.
+    """
+    function = _parts_function(path)
+    if function is None:
+        return [f"{path} has no {_PARTS_FUNCTION} to check"]
+    problems: list[str] = []
+
+    names = [arg.arg for arg in function.args.args]
+    if len(names) != 2 or names[1] != "width":
+        problems.append(
+            f"{path}: {_PARTS_FUNCTION} takes {names}; it needs two "
+            "parameters with width last"
+        )
+
+    bounded = any(
+        isinstance(node.slice, ast.Slice)
+        and isinstance(node.slice.upper, ast.Name)
+        and node.slice.upper.id == "width"
+        for node in ast.walk(function)
+        if isinstance(node, ast.Subscript)
+    )
+    if not bounded:
+        problems.append(
+            f"{path}: {_PARTS_FUNCTION} does not bound its split by `width`; "
+            "a literal there truncated any comparison wider than three "
+            "components, which was a bug once already"
+        )
+
+    # The dangerous break is the one in the guard's arm, not any break: the
+    # inner loop breaks on the first non-digit by design, and that is what
+    # makes "0.2rc1" read as 0.2. What must never happen is the outer loop
+    # *skipping* a component it could not parse, which fails open.
+    arm = _guard_on(function, "digits")
+    if arm is not None:
+        for node in ast.walk(arm):
+            if isinstance(node, (ast.Break, ast.Continue)):
+                problems.append(
+                    f"{path}: {_PARTS_FUNCTION} uses "
+                    f"{type(node).__name__.lower()} inside the "
+                    "`if not digits` arm at line "
+                    f"{node.lineno}, so a component it cannot parse would be "
+                    "skipped instead of refused -- the gate then reports a "
+                    "version it never read as compatible"
+                )
+        if not _refuses(arm):
+            problems.append(
+                f"{path}: {_PARTS_FUNCTION} does not `return None` when a "
+                "component has no leading digit, so an unreadable version is "
+                "guessed at instead of refused"
+            )
+
+    if not any(
+        isinstance(node, ast.Return)
+        and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Name)
+        and node.value.func.id == "tuple"
+        for node in ast.walk(function)
+    ):
+        problems.append(
+            f"{path}: {_PARTS_FUNCTION} does not return a tuple(), which is "
+            "what makes it comparable against a MINIMUM"
+        )
+    return problems
+
+
+def _library_version() -> str:
+    """The version of the library file this module compares against.
+
+    Read from the source rather than from ``importlib.metadata`` so that the
+    version named in a message is the one belonging to the file the message
+    is about.
+    """
+    try:
+        with open(_canonical_path(), encoding="utf-8") as handle:
+            tree = ast.parse(handle.read())
+    except (OSError, SyntaxError):  # pragma: no cover - our own file
+        return "unknown"
+    for node in tree.body:
+        if not (
+            isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "__version__"
+                for target in node.targets
+            )
+            and isinstance(node.value, ast.Constant)
+        ):
+            continue
+        return str(node.value.value)
+    return "unknown"  # pragma: no cover - our own file
+
+
+def release_parts_drift(entry_path: str) -> list[str]:
+    """Whether one project's ``_release_parts`` still matches the library's.
+
+    Every project carries its own copy, so that a version gate never imports
+    the library it is checking -- a library too old to contain the gate would
+    raise, which is the failure the gate exists to prevent. That duplication
+    is deliberate and must not be "fixed" by sharing it.
+
+    What it needs is a check that the copies stay identical, and the reason
+    is the shape of the failure when they do not: a drift lands in *one*
+    tool, so the symptom is "s3ked is broken with this vinsynlib and the
+    other nine work" -- a support ticket about one program, rather than a red
+    build anyone can see.
+
+    The comparison is against the **installed** library, because that is what
+    the project's gate actually runs against. A virtualenv that has not been
+    synced therefore reports drift that is only staleness, so the message
+    names the version it compared against and the file it came from.
+
+    A failing message carries a diff, not just a verdict: the point is to say
+    *what* drifted, and a diff does that better than an enumeration would.
+    """
+    theirs = _parts_function(entry_path)
+    if theirs is None:
+        return [f"{entry_path} has no {_PARTS_FUNCTION} to check"]
+    canonical = _canonical_path()
+    ours = _parts_function(canonical)
+    if ours is None:  # pragma: no cover - the library's own file
+        return [f"{canonical} has no {_PARTS_FUNCTION} to check"]
+
+    problems = release_parts_invariants(entry_path)
+    if ast.dump(_normalised(ours), include_attributes=False) == ast.dump(
+        _normalised(theirs), include_attributes=False
+    ):
+        return problems
+
+    problems.append(
+        f"{entry_path}'s {_PARTS_FUNCTION} differs from the one in vinsynlib "
+        f"{_library_version()} ({canonical}). A project's copy must stay "
+        "identical to the library's; update this one, or the library's first "
+        "and then this one."
+    )
+    problems.extend(
+        "    " + line
+        for line in difflib.unified_diff(
+            ast.unparse(_normalised(ours)).splitlines(),
+            ast.unparse(_normalised(theirs)).splitlines(),
+            "library",
+            "project",
+            lineterm="",
+        )
+    )
+    return problems

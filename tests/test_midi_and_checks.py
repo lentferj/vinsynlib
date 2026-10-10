@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+import ast
+import os
 import sys
 from typing import Any
 
@@ -186,6 +188,121 @@ def test_a_backend_that_will_not_build_is_one_thing_to_catch(
     monkeypatch.setattr(midi, "_rtmidi", lambda: None)
     with pytest.raises(midi.MidiUnavailable, match="no MIDI backend"):
         midi.list_ports()
+
+
+# --- the version gate copies -------------------------------------------------
+#
+# Every project carries its own copy of `_release_parts`, so that a version
+# gate never imports the library it is checking. These check that the copies
+# stay identical, and -- the half that is easy to forget -- that the library's
+# own copy still satisfies the invariants on its own.
+
+
+def _canonical_entry() -> str:
+    """The library's own ``__init__.py``, as a path."""
+    return os.path.join(
+        os.path.dirname(os.path.abspath(devchecks.__file__)), "__init__.py"
+    )
+
+
+def _write_copy(tmp_path: Any, mutate: Any = None) -> str:
+    """A project-shaped file holding the library's own copy of the gate.
+
+    Built from the canonical source rather than written out by hand, so the
+    test cannot drift from the thing it is testing.
+    """
+    with open(_canonical_entry(), encoding="utf-8") as handle:
+        source = handle.read()
+    tree = ast.parse(source)
+    node = next(
+        n
+        for n in tree.body
+        if isinstance(n, ast.FunctionDef) and n.name == "_release_parts"
+    )
+    text = ast.get_source_segment(source, node) or ""
+    if mutate is not None:
+        before = text
+        text = mutate(text)
+        # A mutation that did not apply makes the test prove nothing, which is
+        # exactly how a first draft of this file passed a no-op.
+        assert text != before, "the mutation did not apply"
+    path = tmp_path / "entry.py"
+    path.write_text("from __future__ import annotations\n\n\n" + text + "\n")
+    return str(path)
+
+
+def test_the_librarys_own_copy_satisfies_the_invariants() -> None:
+    """The guard's other half, and the one that is easy to forget.
+
+    Without this, editing vinsynlib's own copy into something dangerous and
+    propagating it would leave every project's copy matching the library's --
+    and the drift check green, because both sides of the comparison are now
+    wrong in the same way.
+    """
+    assert devchecks.release_parts_invariants(_canonical_entry()) == []
+
+
+def test_a_copy_identical_to_the_librarys_reports_nothing(
+    tmp_path: Any,
+) -> None:
+    assert devchecks.release_parts_drift(_write_copy(tmp_path)) == []
+
+
+def test_a_copy_that_stopped_refusing_a_version_is_named(
+    tmp_path: Any,
+) -> None:
+    """The one drift that fails *open*, so it is the one worth a message."""
+
+    def mutate(text: str) -> str:
+        # `return None` on the empty-digits arm, replaced by skipping it.
+        lines = text.splitlines()
+        for index, line in enumerate(lines):
+            if line.strip() == "return None":
+                lines[index] = line.replace("return None", "break")
+                break
+        return "\n".join(lines)
+
+    problems = devchecks.release_parts_drift(_write_copy(tmp_path, mutate))
+    assert any("no leading digit" in problem for problem in problems), problems
+
+
+def test_a_copy_whose_split_is_no_longer_bounded_by_width(
+    tmp_path: Any,
+) -> None:
+    def mutate(text: str) -> str:
+        return text.replace("[:width]", "[:3]")
+
+    problems = devchecks.release_parts_drift(_write_copy(tmp_path, mutate))
+    assert any("bound its split by `width`" in p for p in problems), problems
+
+
+def test_a_copy_that_returns_a_list_is_named(tmp_path: Any) -> None:
+    """A list raises TypeError against a MINIMUM and stops every tool."""
+
+    def mutate(text: str) -> str:
+        return text.replace("return tuple(", "return list(")
+
+    problems = devchecks.release_parts_drift(_write_copy(tmp_path, mutate))
+    assert any("does not return a tuple()" in p for p in problems), problems
+
+
+def test_a_copy_whose_width_parameter_gained_a_default(tmp_path: Any) -> None:
+    """A default reintroduces the hardcoded three."""
+    problems = devchecks.release_parts_drift(
+        _write_copy(
+            tmp_path,
+            lambda text: text.replace("width: int)", "width: int = 3)", 1),
+        )
+    )
+    assert problems, "a widened signature must not pass silently"
+
+
+def test_a_file_with_no_gate_at_all_is_named(tmp_path: Any) -> None:
+    path = tmp_path / "entry.py"
+    path.write_text("import sys\n")
+    assert devchecks.release_parts_drift(str(path)) == [
+        f"{path} has no _release_parts to check"
+    ]
 
 
 # --- the checks a project runs against itself --------------------------------
