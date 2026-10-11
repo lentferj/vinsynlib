@@ -453,6 +453,39 @@ and that read as "nobody relies on annotating creating a row". A test named
 `test_setting_on_something_not_favourited_creates_it` said otherwise. Read
 the tests, not just the calls.
 
+## 1.6 Surfaced by the README audit, 2026-10-11
+
+Two defects the README completeness audit turned up that are not README
+claims. Both are recorded here; neither is fixed, because the audit was
+docs-only.
+
+### 1.6.1 `vinsynlib.__all__` omits the modules added after 0.1.0 — OPEN
+
+`src/vinsynlib/__init__.py:46` lists `cli`, `config`, `conformance`,
+`devchecks`, `favorites`, `is_compatible_version`, `keys`, `midi`, `spec`
+and `terms`. Everything added since -- `backup`, `catalog`, `livenames`,
+`render`, `undo` and `ui` -- is importable by name but absent from
+`__all__`, so `from vinsynlib import *` never reaches it. Whether that is a
+deliberate "stable set" or drift is not recorded anywhere; if it is
+deliberate, a comment on the list should say so.
+
+**Reproduction:** `python -c "import vinsynlib; print(vinsynlib.__all__)"`
+against `ls src/vinsynlib/*.py src/vinsynlib/ui/*.py`.
+
+### 1.6.2 `docs/UX-SPEC.md` §6 still calls the catalog layer unsettled — OPEN
+
+`docs/UX-SPEC.md:379` says *"The `catalog.py` layer. Six copies at 55-100%
+identical ... unifying it means deciding what a catalog entry is, which is a
+larger piece of work than a naming exercise."* The layer now exists in
+`vinsynlib/catalog.py` and the key decision is made (the unreleased
+`CHANGELOG.md` entry: `bank_id[:kind]:number` on the display number), so §6
+is stale in both the copy count -- seven, per `docs/unify2.md` §3.6 -- and
+the verdict. §6 is where a reader looks to see what is left, so it should
+say the layer is settled and shipped, or say what remains open.
+
+**Reproduction:** read `docs/UX-SPEC.md` §6 against `src/vinsynlib/catalog.py`
+and the catalog entry in `CHANGELOG.md`.
+
 ---
 
 # 2. Centralising undo — analysis
