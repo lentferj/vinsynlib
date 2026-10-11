@@ -93,9 +93,9 @@ class BusyGate:
 
     def __exit__(
         self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: Any,
+        _exc_type: type[BaseException] | None,
+        _exc_val: BaseException | None,
+        _exc_tb: Any,
     ) -> None:
         with self._lock:
             self._refused = None

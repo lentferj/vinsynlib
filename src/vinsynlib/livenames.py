@@ -46,10 +46,10 @@ import os
 import sys
 from typing import TYPE_CHECKING
 
-from vinsynlib.catalog import make_key, split_key
+from .catalog import make_key, split_key
 
 if TYPE_CHECKING:
-    from vinsynlib.catalog import Catalog
+    from .catalog import Catalog
 
 __all__ = ["FILE_NAME", "apply_to", "key", "load", "save"]
 
