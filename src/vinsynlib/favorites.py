@@ -808,3 +808,17 @@ def _clean_tags(tags: str) -> str:
         if tag and tag.lower() not in {t.lower() for t in seen}:
             seen.append(tag)
     return ", ".join(seen)
+
+
+def rating_cell(rating: int, *, scale: int = 5) -> str:
+    """Render a rating as filled stars plus empty dots.
+
+    Shows both the value and the scale (e.g. ``★★★··`` for 3 of 5).
+    Blank for a rating of 0, not five dots. ``*`` is never used:
+    it is reserved for "name disagrees with catalogue".
+    """
+    if rating == 0:
+        return ""
+    filled = "★" * rating
+    empty = "·" * (scale - rating)
+    return filled + empty
