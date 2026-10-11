@@ -16,7 +16,7 @@ CI goes red rather than after. Each such entry is marked **stricter**.
 The reasoning behind almost every entry lives in `TODO.md`, which records
 the 2026-10-09 code review the 0.3.0 work came from.
 
-## [Unreleased] — unify2 waves 1–5 (on `unify2-wave1-0.4.0`)
+## [0.4.0] — 2026-10-11
 
 Library only, no consumers yet. Each item landed with tests and no
 importers, per the per-extraction checklist.
