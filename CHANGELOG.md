@@ -50,7 +50,7 @@ importers, per the per-extraction checklist.
   `SearchScreen`, `RatingFilter` + `RatingFilterScreen`
   (escape returns unchanged, x-then-enter clears), `CategoryScreen`
   (`{code: (label, count)}` param, not `CATEGORY_NAMES`), and a
-  two-table `PickerScreen` with a shared `_slot` row-key parse.
+  two-table `PickerScreen` whose row keys use the catalog grammar.
 - **Catalog (`catalog.py` + `livenames.py`, §3.6).** Key is
   `bank_id[:kind]:number` on the DISPLAY number (`kind` defaults
   `""`); wire-keyed rows convert at the edge. No categories — those
@@ -59,6 +59,37 @@ importers, per the per-extraction checklist.
   default + `--config` help + a migration note for existing
   `config.toml`; ui-state as a key-namespaced view (`UNSET` vs
   `None`, bool-before-int, `None` removes the key).
+
+### Review fixes — 2026-10-11 (DS41F)
+
+Fixes from the code review of the above, `docs`-free and library-only.
+
+- **`parse_identity_reply` no longer requires a checksum.** The
+  Universal Identity Reply has no checksum byte, so the previous
+  `sum(inner) % 128 != 0` test rejected every real device's reply. The
+  Thru-loop guard is the sub-ID check (reply `06 02` vs request
+  `06 01`), which is unchanged. Tests now build spec-shaped frames and
+  include literal-reply regressions.
+- **`catalog.load` refuses a non-dict `banks`** with a named
+  `ValueError` instead of an incidental `AttributeError`.
+- **One key grammar.** `PickerScreen` builds and parses row keys with
+  `catalog.make_key`/`split_key` (`bank_id[:kind]:number`) instead of
+  its own `rsplit` scheme; a bank can carry an optional kind, so a bank
+  holding two kinds round-trips. The picker returns
+  `(bank_id, number, kind)`.
+- **A refusal message survives progress.** `BrowserApp.notify_progress`
+  records progress in `last_progress` and no longer overwrites a
+  refused `last_status`; the flag and `#status.refused` class stay set.
+- **`BusyGate` has an in-progress state.** `__enter__`/`__exit__` track
+  it so `close_when_idle` can see a running exchange and will not close
+  the bridge mid-exchange even though the refusal was consumed.
+- **Undo failure is signalled.** A failed revert is reported distinctly
+  from an empty log (message + `last_error`); a hookless log raises on
+  undo rather than silently discarding records. R4 invariants are
+  unchanged.
+- **Nits:** `open_output`'s docstring corrected (MidiOut does not gate
+  SysEx); the unreachable `0x7D`/`0x7F` branch removed;
+  `_close_and_delete` is no longer exported.
 
 ## [0.3.1] — 2026-10-10
 
