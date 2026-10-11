@@ -51,6 +51,7 @@ import signal
 import sys
 import time
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from typing import Any, NoReturn, TextIO, TypeVar, cast
 
 __all__ = [
@@ -530,3 +531,94 @@ def open_output(port_name: str) -> Any:
         raise
     return port
 
+
+# --- §3.9 identity additions (Agent B, independently mergeable) ----------
+
+def identity_request(device: int = 0x7F) -> bytes:
+    """Universal Identity Request for *device*."""
+    return bytes([0xF0, 0x7E, device, 0x06, 0x01, 0xF7])
+
+
+@dataclass(frozen=True)
+class IdentityReply:
+    """A decoded Universal Identity Reply."""
+
+    device: int
+    family: int
+    family_number: int
+    revision: int
+
+
+@dataclass(frozen=True)
+class DeviceIdentity:
+    """A device identified by its send/receive ports and reply."""
+
+    send_port: str
+    recv_port: str
+    reply: IdentityReply
+
+
+_F0 = 0xF0
+_F7 = 0xF7
+_SYSEX_START = 0x7E
+_ID_REQ_SUB1 = 0x06
+_ID_REQ_SUB2_REQ = 0x01
+_ID_REQ_SUB2_REPLY = 0x02
+_MIN_ID_LENGTH = 7
+_MIN_INNER_LENGTH = 5
+_CUSTOM_SYSEX_START = 0x7D
+_REALTIME_SYSEX_START = 0x7F
+_MFR_3BYTE_FIRST = 0x00
+_MIN_SUB_ID_OFFSET = 4
+_REMAINING_SIZE = 8
+
+
+def parse_identity_reply(  # noqa: C901, PLR0911
+    frame: bytes | Sequence[int],
+) -> IdentityReply | None:
+    """Parse an Identity Reply, or None for non-reply / broken frames."""
+    data: list[int] = list(frame)
+    if len(data) < _MIN_ID_LENGTH or data[0] != _F0 or data[-1] != _F7:
+        return None
+    inner = data[1:-1]
+    if sum(inner) % 128 != 0:
+        return None
+    if len(inner) < _MIN_INNER_LENGTH or inner[0] != _SYSEX_START:
+        return None
+    if inner[0] == _CUSTOM_SYSEX_START or inner[0] == _REALTIME_SYSEX_START:
+        return None
+    if (
+        len(inner) >= _MIN_SUB_ID_OFFSET
+        and inner[2] == _ID_REQ_SUB1
+        and inner[3] == _ID_REQ_SUB2_REQ
+    ):
+        return None
+    if (
+        len(inner) < _MIN_SUB_ID_OFFSET
+        or inner[2] != _ID_REQ_SUB1
+        or inner[3] != _ID_REQ_SUB2_REPLY
+    ):
+        return None
+    device = inner[1]
+    offset = 4
+    if offset >= len(inner):
+        return None
+    mfr_first = inner[offset]
+    if mfr_first == _MFR_3BYTE_FIRST:
+        if offset + 3 > len(inner) - 1:
+            return None
+        offset += 3
+    else:
+        offset += 1
+    remaining = inner[offset:]
+    if len(remaining) < _REMAINING_SIZE:
+        return None
+    family_val = remaining[0] + (remaining[1] << 7)
+    family_num = remaining[2] + (remaining[3] << 7)
+    revision_val = int.from_bytes(remaining[4:8], "big")
+    return IdentityReply(
+        device=device,
+        family=family_val,
+        family_number=family_num,
+        revision=revision_val,
+    )
