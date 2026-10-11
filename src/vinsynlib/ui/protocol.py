@@ -18,9 +18,7 @@ class AppProtocol(Protocol):
         self, message: str, *, refused: bool = False
     ) -> None: ...
 
-    def notify_progress(
-        self, label: str, done: int, total: int
-    ) -> None: ...
+    def notify_progress(self, label: str, done: int, total: int) -> None: ...
 
     def push_screen(
         self, screen: object, *, wait_for_dismiss: bool = False
