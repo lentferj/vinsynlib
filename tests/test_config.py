@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import os
+import tomllib
 from typing import Any
 
 import pytest
@@ -451,3 +452,324 @@ def test_the_write_leaves_no_temporary_behind(tmp_path: Any) -> None:
     store.save_channel(2)
 
     assert not [name for name in os.listdir(tmp_path) if name.endswith(".tmp")]
+
+
+# --- §3.7: one directory per tool --------------------------------------------
+
+
+def test_config_dir_uses_xdg_config_home(
+    tmp_path: Any, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    assert config.config_dir("rxved") == str(tmp_path / "xdg" / "rxved")
+    assert config.config_dir("p2ked") == str(tmp_path / "xdg" / "p2ked")
+
+
+def test_config_dir_falls_back_to_home_dot_config(
+    tmp_path: Any, monkeypatch: Any
+) -> None:
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert config.config_dir("rxved") == str(tmp_path / ".config" / "rxved")
+
+
+def test_config_dir_ignores_a_relative_xdg_config_home(
+    tmp_path: Any, monkeypatch: Any
+) -> None:
+    """XDG requires the variable to hold an absolute path.
+
+    A relative value must fall back rather than create directories
+    wherever the process happened to have been started.
+    """
+    monkeypatch.setenv("XDG_CONFIG_HOME", "relative/path")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert config.config_dir("rxved") == str(tmp_path / ".config" / "rxved")
+
+
+@pytest.mark.parametrize("bad", ["", ".", "..", "a/b", "a\\b"])
+def test_config_dir_refuses_names_that_are_not_plain(bad: str) -> None:
+    with pytest.raises(ValueError):
+        config.config_dir(bad)
+
+
+def test_default_config_path_is_per_tool(
+    tmp_path: Any, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    assert config.default_config_path("rxved") == str(
+        tmp_path / "rxved" / "config.toml"
+    )
+
+
+def test_config_help_names_the_per_tool_default(
+    tmp_path: Any, monkeypatch: Any
+) -> None:
+    """The --config wording keeps the family's shape, with this tool's
+    own default filled in."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    wording = config.config_help("rxved")
+    assert "settings cache" in wording
+    assert "safe to delete" in wording
+    assert str(tmp_path / "rxved" / "config.toml") in wording
+    assert "./config.toml" not in wording
+
+
+def test_the_migration_note_says_where_and_how() -> None:
+    """The file move wants a note louder than a changelog bullet."""
+    assert "config.toml" in config.MIGRATION_NOTE
+    assert "--config" in config.MIGRATION_NOTE
+
+
+def test_migration_copies_a_legacy_file_into_the_tool_dir(
+    tmp_path: Any, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    legacy = tmp_path / "config.toml"
+    legacy.write_text(
+        "# rxved local config - gitignored, safe to delete.\n"
+        'port = "Midi Out: XV"\nchannel = 4\n',
+        encoding="utf-8",
+    )
+    moved = config.migrate_legacy_config("rxved", legacy=str(legacy))
+
+    assert moved == config.default_config_path("rxved")
+    assert moved is not None
+    fresh = config.Settings("rxved", moved)
+    assert fresh.load_port() == "Midi Out: XV"
+    assert fresh.load_channel() == 4
+    # A copy, not a move: the old file stays until its owner, having
+    # seen the new one work, deletes it by hand.
+    assert legacy.exists()
+
+
+def test_migration_also_takes_a_headerless_file(
+    tmp_path: Any, monkeypatch: Any
+) -> None:
+    """No family header is not another tool: the lenient upgrade path
+    treats it as ours, and so does the migration."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    legacy = tmp_path / "config.toml"
+    legacy.write_text("channel = 6\n", encoding="utf-8")
+    moved = config.migrate_legacy_config("rxved", legacy=str(legacy))
+    assert moved is not None
+    assert config.Settings("rxved", moved).load_channel() == 6
+
+
+def test_migration_leaves_a_foreign_file_alone(
+    tmp_path: Any, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    legacy = tmp_path / "config.toml"
+    legacy.write_text(
+        "# x5ded local config - gitignored, safe to delete.\n"
+        'port = "Midi Out: X5D"\n',
+        encoding="utf-8",
+    )
+    assert config.migrate_legacy_config("p2ked", legacy=str(legacy)) is None
+    assert not (tmp_path / "xdg" / "p2ked" / "config.toml").exists()
+
+
+def test_migration_never_overwrites(tmp_path: Any, monkeypatch: Any) -> None:
+    """A target that already exists wins: the legacy file may be stale,
+    and a migration that destroys the newer memory is no migration."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    target = tmp_path / "xdg" / "rxved" / "config.toml"
+    target.parent.mkdir(parents=True)
+    target.write_text("channel = 1\n", encoding="utf-8")
+    legacy = tmp_path / "config.toml"
+    legacy.write_text("channel = 9\n", encoding="utf-8")
+
+    assert config.migrate_legacy_config("rxved", legacy=str(legacy)) is None
+    assert target.read_text(encoding="utf-8") == "channel = 1\n"
+
+
+def test_migration_with_no_legacy_file_is_nothing_to_do(
+    tmp_path: Any, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    missing = tmp_path / "absent.toml"
+    assert config.migrate_legacy_config("rxved", legacy=str(missing)) is None
+
+
+def test_migration_refuses_an_unparseable_legacy_file(
+    tmp_path: Any, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    legacy = tmp_path / "config.toml"
+    legacy.write_text("this is not = = toml\n", encoding="utf-8")
+    assert config.migrate_legacy_config("rxved", legacy=str(legacy)) is None
+    assert not (tmp_path / "xdg" / "rxved" / "config.toml").exists()
+
+
+# --- §3.15: the screens' own memory ------------------------------------------
+
+
+def test_ui_state_round_trips_scalars(tmp_path: Any) -> None:
+    path = str(tmp_path / "ui-state.toml")
+    store = config.Settings("rxved", str(tmp_path / "config.toml"))
+    store.save_ui_state("browser.bank", "USER", path)
+    store.save_ui_state("browser.cursor", 3, path)
+    store.save_ui_state("browser.preview", True, path)
+    store.save_ui_state("browser.mix", 0.75, path)
+
+    assert store.load_ui_state("browser.bank", path) == "USER"
+    assert store.load_ui_state("browser.cursor", path) == 3
+    assert store.load_ui_state("browser.preview", path) is True
+    assert store.load_ui_state("browser.mix", path) == 0.75
+
+
+def test_ui_state_absent_is_unset_not_none(tmp_path: Any) -> None:
+    """Absent means remember-nothing, and UNSET is how that reads.
+
+    The sentinel exists because None is taken: saving None forgets a
+    key, so None can never be what the file says, and "nothing kept"
+    needs a value of its own.
+    """
+    store = config.Settings("rxved", str(tmp_path / "config.toml"))
+    missing = str(tmp_path / "ui-state.toml")
+
+    assert store.load_ui_state("browser.bank", missing) is config.UNSET
+    assert store.load_ui_state("browser.bank", missing) is not None
+    data, status = store.read_ui_state(missing)
+    assert (data, status) == ({}, "ok")
+
+
+def test_ui_state_explicit_none_is_the_callers_own_default(
+    tmp_path: Any,
+) -> None:
+    """UNSET-vs-None, the other half: a caller passing default=None gets
+    None back, which is its own choice and not the file's."""
+    store = config.Settings("rxved", str(tmp_path / "config.toml"))
+    missing = str(tmp_path / "ui-state.toml")
+
+    assert store.load_ui_state("browser.bank", missing, default=None) is None
+    assert store.load_ui_state("browser.bank", missing, default=7) == 7
+
+
+def test_unset_prints_as_itself_and_counts_as_nothing() -> None:
+    assert repr(config.UNSET) == "UNSET"
+    assert not config.UNSET
+
+
+def test_ui_state_none_forgets_the_key(tmp_path: Any) -> None:
+    path = str(tmp_path / "ui-state.toml")
+    store = config.Settings("rxved", str(tmp_path / "config.toml"))
+    store.save_ui_state("browser.bank", "USER", path)
+    assert store.load_ui_state("browser.bank", path) == "USER"
+
+    store.save_ui_state("browser.bank", None, path)
+
+    assert "browser.bank" not in store.read_ui_state(path)[0]
+    assert store.load_ui_state("browser.bank", path) is config.UNSET
+
+
+def test_ui_state_bool_is_not_an_int(tmp_path: Any) -> None:
+    """bool subclasses int, so the int reader checks bool first.
+
+    A hand-edited ``flag = true`` read as 1 would restore a cursor on
+    the second row -- the same trap load_channel guards one file over.
+    """
+    path = tmp_path / "ui-state.toml"
+    path.write_text("flag = true\ncount = 3\n", encoding="utf-8")
+    store = config.Settings("rxved", str(tmp_path / "config.toml"))
+
+    assert store.load_ui_bool("flag", str(path)) is True
+    assert store.load_ui_int("flag", str(path)) is None
+    assert store.load_ui_int("count", str(path)) == 3
+    assert store.load_ui_bool("count", str(path)) is None
+    assert store.load_ui_str("count", str(path)) is None
+
+
+def test_ui_state_namespaced_keys_stay_flat(tmp_path: Any) -> None:
+    """A dotted key is written quoted: unquoted, ``a.b`` is a table in
+    TOML, and a table trips the refusal on the next write."""
+    path = tmp_path / "ui-state.toml"
+    store = config.Settings("rxved", str(tmp_path / "config.toml"))
+    store.save_ui_state("browser.cursor", 3, str(path))
+
+    text = path.read_text(encoding="utf-8")
+    assert '"browser.cursor"' in text
+    assert tomllib.loads(text)["browser.cursor"] == 3
+    assert store.load_ui_int("browser.cursor", str(path)) == 3
+
+    # ...and the round trip survives a second save, which is what the
+    # unquoted form would break: the nested table would refuse.
+    store.save_ui_state("browser.bank", "USER", str(path))
+    assert store.load_ui_int("browser.cursor", str(path)) == 3
+    assert store.load_ui_str("browser.bank", str(path)) == "USER"
+
+
+def test_ui_state_can_share_the_settings_file(tmp_path: Any) -> None:
+    """One flat mapping: namespaced ui keys beside the port keys."""
+    path = str(tmp_path / "config.toml")
+    store = config.Settings("rxved", path)
+    store.save_port("Midi Out: XV")
+    store.save_ui_state("browser.cursor", 2, path)
+    assert store.load_port() == "Midi Out: XV"
+    assert store.load_ui_int("browser.cursor", path) == 2
+
+
+def test_ui_state_defaults_to_beside_the_settings_file(
+    tmp_path: Any,
+) -> None:
+    """No path means the ui-state file next to this tool's config, and
+    another tool's file still reads as empty."""
+    store = config.Settings("rxved", str(tmp_path / "config.toml"))
+    store.save_ui_state("browser.cursor", 5)
+
+    assert (tmp_path / "ui-state.toml").exists()
+    assert store.load_ui_state("browser.cursor") == 5
+    other = config.Settings("p2ked", str(tmp_path / "config.toml"))
+    assert other.load_ui_state("browser.cursor") is config.UNSET
+
+
+@pytest.mark.parametrize("bad", [{"bank": "USER"}, ["USER"], ("USER",)])
+def test_ui_state_rejects_non_scalars(tmp_path: Any, bad: Any) -> None:
+    """A screen's memory is scalars: anything nested is a programming
+    error, and must be heard rather than silently stringified."""
+    store = config.Settings("rxved", str(tmp_path / "config.toml"))
+    with pytest.raises(TypeError):
+        store.save_ui_state("browser.bank", bad, str(tmp_path / "ui.toml"))
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_ui_state_rejects_non_finite_floats(tmp_path: Any, bad: float) -> None:
+    """NaN and the infinities have no TOML spelling: writing one would
+    leave a file the next read refuses, wedging every later save."""
+    store = config.Settings("rxved", str(tmp_path / "config.toml"))
+    with pytest.raises(ValueError):
+        store.save_ui_state("browser.mix", bad, str(tmp_path / "ui.toml"))
+
+
+def test_ui_state_rejects_an_empty_key(tmp_path: Any) -> None:
+    store = config.Settings("rxved", str(tmp_path / "config.toml"))
+    missing = str(tmp_path / "absent.toml")
+    with pytest.raises(ValueError):
+        store.save_ui_state("", "USER", missing)
+    # The key is checked before the file is: even a missing file hears
+    # about a programming error rather than answering UNSET.
+    with pytest.raises(ValueError):
+        store.load_ui_state("", missing)
+
+
+def test_ui_state_rejects_a_non_string_key(tmp_path: Any) -> None:
+    store = config.Settings("rxved", str(tmp_path / "config.toml"))
+    key: Any = 123
+    with pytest.raises(TypeError):
+        store.save_ui_state(key, "USER", str(tmp_path / "ui.toml"))
+
+
+def test_an_unreadable_ui_state_file_is_remember_nothing(
+    tmp_path: Any, capsys: Any
+) -> None:
+    """The config discipline carries over: a broken ui-state file reads
+    as nothing remembered and is never overwritten by a save."""
+    path = tmp_path / "ui-state.toml"
+    path.write_text("this is not = = toml\n", encoding="utf-8")
+    store = config.Settings("rxved", str(tmp_path / "config.toml"))
+
+    assert store.load_ui_state("browser.bank", str(path)) is config.UNSET
+    before = path.read_bytes()
+    store.save_ui_state("browser.bank", "USER", str(path))
+    assert path.read_bytes() == before
+    assert "could not be parsed" in capsys.readouterr().err

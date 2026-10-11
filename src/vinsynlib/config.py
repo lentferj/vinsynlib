@@ -44,11 +44,16 @@ One :class:`Settings` per application. The application name is only used in
 the one warning message, but it is required, because that message has to
 say which of the family is refusing to save -- otherwise a user with six of
 these open has no way to tell which one is unhappy.
+
+The cache is moving to one directory per tool -- see :func:`config_dir`
+and :data:`MIGRATION_NOTE` -- and the screens' own memory lives in a
+key-namespaced view beside it; see :meth:`Settings.load_ui_state`.
 """
 
 from __future__ import annotations
 
 import contextlib
+import math
 import os
 import sys
 from dataclasses import dataclass, field
@@ -67,8 +72,14 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
 
 __all__ = [
     "DEFAULT_PATH",
+    "MIGRATION_NOTE",
+    "UNSET",
     "Settings",
     "bind",
+    "config_dir",
+    "config_help",
+    "default_config_path",
+    "migrate_legacy_config",
 ]
 
 #: Where the cache lives unless told otherwise. Relative on purpose: it is a
@@ -126,6 +137,59 @@ def _owner(first_line: str | None) -> str | None:
         return None
     name = body[: -len(_HEADER)].strip()
     return name or None
+
+
+#: The ui-state file's name beside the settings file. A second file
+#: rather than a ``[ui]`` table in the first: :meth:`Settings.update`
+#: refuses a file holding tables or lists, because this tool writes only
+#: scalars and anything nested belongs to somebody else. A dotted key
+#: written unquoted *is* a table in TOML, so the writer quotes it -- see
+#: :meth:`Settings._toml_key` -- and the two files stay one flat mapping
+#: each, readable by either method.
+_UI_STATE_FILENAME = "ui-state.toml"
+
+
+class _Unset:
+    """The type of :data:`UNSET`: "nothing was remembered".
+
+    A class rather than ``object()`` so it prints as ``UNSET`` instead
+    of a memory address when a test failure shows it, and falsy so that
+    ``load_ui_state(key) or live_value`` falls through to the live
+    state. The reliable test is still ``is UNSET``: a remembered ``0``,
+    ``""`` or ``False`` is falsy too, and must restore as itself rather
+    than as nothing.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "UNSET"
+
+    def __bool__(self) -> bool:
+        return False
+
+
+#: "Nothing was remembered": the answer :meth:`Settings.load_ui_state`
+#: gives for a missing file or a missing key, unless the caller passes
+#: its own ``default``. Distinct from ``None`` on purpose -- TOML has
+#: no null, so ``None`` is never a stored value, and :meth:`Settings
+#: .save_ui_state` spells "forget this key" as ``None``. See
+#: :meth:`Settings.load_ui_state` for the two side by side.
+UNSET = _Unset()
+
+
+def _check_ui_key(key: str) -> None:
+    """Refuse a ui-state key that is not a usable key.
+
+    Anything else here is a programming error -- a caller mixing up
+    ``key`` and ``value``, or building a key from a ``None`` -- and
+    programming errors must be heard, not stored. (Only :class:`OSError`
+    is swallowed in this module, as everywhere here.)
+    """
+    if not isinstance(key, str):
+        raise TypeError(f"ui-state key must be str, not {type(key).__name__}")
+    if not key:
+        raise ValueError("ui-state key must not be empty")
 
 
 @dataclass
@@ -339,6 +403,25 @@ class Settings:
         out.append('"')
         return "".join(out)
 
+    @staticmethod
+    def _toml_key(key: str) -> str:
+        """One TOML key: bare when it is one, quoted when namespaced.
+
+        Dots must be quoted: an unquoted ``a.b`` is a table in TOML,
+        and a table in this file trips the tables-or-lists refusal on
+        the next write. Quoted, ``"a.b"`` is one flat key, which is what
+        a screen namespace like ``"browser.cursor"`` needs.
+        """
+        if key and all(
+            "a" <= char <= "z"
+            or "A" <= char <= "Z"
+            or "0" <= char <= "9"
+            or char in "_-"
+            for char in key
+        ):
+            return key
+        return Settings._toml_string(key)
+
     # --- channel -------------------------------------------------------------
 
     def load_channel(self, path: str | None = None) -> int | None:
@@ -444,11 +527,368 @@ class Settings:
     def save_device_id(self, device_id: int, path: str | None = None) -> None:
         self.update(path, device_id=int(device_id))
 
+    # --- ui state ------------------------------------------------------------
+
+    def _ui_path(self, path: str | None) -> str:
+        """The ui-state file: ``path``, or beside the settings file."""
+        if path is not None:
+            return path
+        return os.path.join(
+            os.path.dirname(self.default_path), _UI_STATE_FILENAME
+        )
+
+    def read_ui_state(
+        self, path: str | None = None
+    ) -> tuple[dict[str, Any], str]:
+        """The ui-state file's keys, and ``"ok"`` or ``"unreadable"``.
+
+        The whole key-namespaced view at once: every screen's
+        remembered scalars in one flat mapping, for a caller that
+        restores several keys together. The same two rules as
+        :meth:`read`: a file that does not exist reads as empty rather
+        than an error, and a file that belongs to another tool reads as
+        empty rather than as this one's memory.
+        """
+        target = self._ui_path(path)
+        data, status, first_line = self._read_document(target)
+        if status != "ok":
+            return data, status
+        owner = _owner(first_line)
+        if owner is not None and owner != self.app_name:
+            return {}, "ok"
+        return data, "ok"
+
+    def load_ui_state(
+        self,
+        key: str,
+        path: str | None = None,
+        *,
+        default: Any = UNSET,
+    ) -> Any:
+        """The value remembered under ``key``, or ``default``.
+
+        Absent means remember-nothing: a missing file, or a file
+        without the key, answers with ``default`` rather than an error,
+        so a screen starts from its live state and only restores what
+        was actually kept.
+
+        ``default`` is :data:`UNSET` unless given, which is how
+        "nothing remembered" is told apart from an explicit ``None``.
+        TOML has no null, so ``None`` is never a stored value:
+        :meth:`save_ui_state` spells "forget this key" as ``None``,
+        and a file can only ever hand back a scalar. ``load_ui_state(
+        key) is UNSET`` therefore means nothing was kept, while
+        ``load_ui_state(key, default=None)`` answering ``None`` is the
+        caller's own fallback, not the file's.
+        """
+        _check_ui_key(key)
+        return self.read_ui_state(path)[0].get(key, default)
+
+    def load_ui_str(
+        self,
+        key: str,
+        path: str | None = None,
+        *,
+        default: str | None = None,
+    ) -> str | None:
+        """The string remembered under ``key``, or ``default``.
+
+        Anything that is not a string reads as nothing remembered: a
+        hand-edited number in a screen's key is not a string that
+        happens to be unused, it is a value this reader cannot honour,
+        so returning it would restore something never kept.
+        """
+        _check_ui_key(key)
+        value = self.read_ui_state(path)[0].get(key, default)
+        return value if isinstance(value, str) else default
+
+    def load_ui_int(
+        self,
+        key: str,
+        path: str | None = None,
+        *,
+        default: int | None = None,
+    ) -> int | None:
+        """The int remembered under ``key``, or ``default``.
+
+        The bool check is not decoration: ``isinstance(True, int)`` is
+        True, so a hand-edited ``flag = true`` would otherwise come back
+        as ``1`` -- a cursor on the second row, a bank that is not the
+        first. See :meth:`load_channel` for the same trap one file over.
+        """
+        _check_ui_key(key)
+        value = self.read_ui_state(path)[0].get(key, default)
+        if isinstance(value, bool) or not isinstance(value, int):
+            return default
+        return value
+
+    def load_ui_bool(
+        self,
+        key: str,
+        path: str | None = None,
+        *,
+        default: bool | None = None,
+    ) -> bool | None:
+        """The bool remembered under ``key``, or ``default``.
+
+        Only a bool reads as one: ``2`` is not ``True`` with the serial
+        number filed off, it is a value this reader cannot honour.
+        """
+        _check_ui_key(key)
+        value = self.read_ui_state(path)[0].get(key, default)
+        return value if isinstance(value, bool) else default
+
+    def _writable_ui_state(self, target: str) -> dict[str, Any] | None:
+        """The ui-state file's keys, or ``None`` when writing is refused.
+
+        The three refusals are :meth:`update`'s -- an unparseable file,
+        a file that belongs to another tool, a file holding tables or
+        lists -- announced once each, for the same reasons: in all three
+        the alternative is destroying something this tool did not write.
+        """
+        data, status, first_line = self._read_document(target)
+        if status == "unreadable":
+            self._warn_once(
+                "ui-unreadable",
+                f"{self.app_name}: {target} could not be parsed, so "
+                f"ui state is not being saved. Fix or delete it; "
+                f"nothing has been overwritten.",
+            )
+            return None
+        owner = _owner(first_line)
+        if owner is not None and owner != self.app_name:
+            self._warn_once(
+                "ui-foreign",
+                f"{self.app_name}: {target} is {owner}'s settings "
+                f"file, so {self.app_name} is leaving it alone.",
+            )
+            return None
+        if any(isinstance(stored, (dict, list)) for stored in data.values()):
+            self._warn_once(
+                "ui-complex",
+                f"{self.app_name}: {target} holds tables or lists, "
+                f"which {self.app_name} does not write, so it is "
+                f"leaving it alone.",
+            )
+            return None
+        return data
+
+    def save_ui_state(
+        self,
+        key: str,
+        value: str | int | float | bool | None,
+        path: str | None = None,
+    ) -> None:
+        """Remember ``value`` under the namespaced ``key``.
+
+        Keys are namespaced by convention -- ``"browser.cursor"``,
+        ``"browser.bank"`` -- one flat mapping shared by every screen,
+        so a screen reads only the keys with its own prefix and never
+        needs a schema for the rest. A dotted key is written quoted:
+        an unquoted ``a.b`` is a table in TOML, and a table in this
+        file trips the refusal on the next write.
+
+        ``None`` removes the key rather than storing anything -- TOML
+        has no null, so there is nothing else ``None`` can mean, and
+        forgetting a screen's last state is one call with no sentinel
+        to import. Only scalars are stored; anything else is a
+        programming error and raises rather than silently becoming a
+        string. A non-finite float raises too: NaN and the infinities
+        have no TOML spelling, and writing one would leave a file the
+        next read refuses, wedging every later save.
+        """
+        _check_ui_key(key)
+        if value is not None and not isinstance(
+            value, (str, int, float, bool)
+        ):
+            raise TypeError(
+                f"ui-state stores scalars, not {type(value).__name__}"
+            )
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValueError(
+                f"ui-state cannot store non-finite float {value!r}"
+            )
+        target = self._ui_path(path)
+        data = self._writable_ui_state(target)
+        if data is None:
+            return
+        # Forgetting is spelled None: TOML has no null, so there is
+        # nothing else None can mean.
+        if value is None:
+            data.pop(key, None)
+        else:
+            data[key] = value
+        lines = [f"# {self.app_name}{_HEADER}"]
+        for stored_key, stored_value in data.items():
+            if isinstance(stored_value, bool):
+                lines.append(
+                    f"{self._toml_key(stored_key)} = "
+                    f"{'true' if stored_value else 'false'}"
+                )
+            elif isinstance(stored_value, str):
+                lines.append(
+                    f"{self._toml_key(stored_key)} = "
+                    f"{self._toml_string(stored_value)}"
+                )
+            else:
+                lines.append(f"{self._toml_key(stored_key)} = {stored_value}")
+        self._write_atomic(target, "\n".join(lines) + "\n")
+
 
 def bind(app_name: str, default_path: str = DEFAULT_PATH) -> Settings:
     """A :class:`Settings` for one application.
 
     The shape every project used to hand-roll: one settings object, named
-    after the tool, with the tool's name in its one warning message.
+    after the tool, with the tool's name in its one warning message. A
+    tool on the per-tool directory binds :func:`default_config_path` as
+    its path; see :data:`MIGRATION_NOTE`.
     """
     return Settings(app_name=app_name, default_path=default_path)
+
+
+def config_dir(tool: str) -> str:
+    """The per-platform directory for one tool's settings cache.
+
+    Nine tools defaulted to the same relative ``config.toml``, kept
+    apart only by the header guard in :class:`Settings` -- and the
+    guard is the workaround, not the fix. A shared relative path is
+    per-checkout by accident: two checkouts of one tool in different
+    directories forget each other's ports for no reason, while two
+    tools in one directory must not share. One directory per tool
+    settles both.
+
+    * **Windows** -- ``%LOCALAPPDATA%\\<tool>``. The same branch the
+      favourites database takes, for the duller reason: there is only
+      one per-user place, and a cache beside the database is findable.
+
+    * **macOS** -- ``~/Library/Application Support/<tool>``, beside
+      the favourites database rather than in ``Preferences``: that
+      directory is for plists, and scattering one tool across two homes
+      helps nobody find anything.
+
+    * **Linux, BSD, everything else** -- ``$XDG_CONFIG_HOME/<tool>``,
+      falling back to ``~/.config/<tool>``. A relative
+      ``$XDG_CONFIG_HOME`` is ignored, as the specification requires,
+      rather than creating directories wherever the process started.
+
+    The directory is **not** created here: deciding where a file goes
+    must not decide that it exists. A tool creates it at startup --
+    ``os.makedirs(config_dir(tool), exist_ok=True)`` -- before its
+    first save, and :func:`migrate_legacy_config` creates it as part
+    of the move. A save to a directory that is not there is forgotten,
+    as every unwritable save in this module is.
+
+    Raises :class:`ValueError` for a name that is not a plain directory
+    name: an empty string, ``.`` and ``..``, or anything holding a
+    separator would point the cache somewhere its owner did not mean.
+    """
+    if not tool or tool in (".", "..") or "/" in tool or "\\" in tool:
+        raise ValueError(f"config_dir needs a plain tool name, not {tool!r}")
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+        if base:
+            return os.path.join(base, tool)
+    elif sys.platform == "darwin":
+        home = os.path.expanduser("~")
+        if os.path.isabs(home):
+            return os.path.join(home, "Library", "Application Support", tool)
+    base = os.environ.get("XDG_CONFIG_HOME")
+    # XDG: "If $XDG_CONFIG_HOME is either not set or empty, a default
+    # equal to $HOME/.config should be used." and paths in it must be
+    # absolute -- see data_dir in favorites.py for the same branch.
+    if not base or not os.path.isabs(base):
+        base = os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(base, tool)
+
+
+def default_config_path(tool: str) -> str:
+    """Where one tool's settings cache lives unless told otherwise.
+
+    ``config.toml`` inside :func:`config_dir`, so each tool remembers
+    its own ports in its own directory. New tools bind it --
+    ``bind(tool, default_config_path(tool))`` -- while :func:`bind`
+    keeps the old relative default for the tools that already shipped
+    with one; see :data:`MIGRATION_NOTE` for the move between them.
+    """
+    return os.path.join(config_dir(tool), "config.toml")
+
+
+def config_help(tool: str) -> str:
+    """The ``--config`` help text for one tool.
+
+    The same shape as the family's ``--config`` wording in the command
+    line contract, with this tool's own default filled in -- so the
+    option keeps reading as one family's option while naming a path
+    that is this tool's alone.
+    """
+    return (
+        f"settings cache (default: {default_config_path(tool)}; "
+        "safe to delete)"
+    )
+
+
+#: The §3.7 migration, louder than a changelog bullet: this changes
+#: where a file lives, so it ships in its own release and says so here.
+MIGRATION_NOTE = (
+    "Nine tools defaulted to the same relative config.toml, kept apart "
+    "only by the header guard in vinsynlib.config. From this release "
+    "each tool defaults to its own directory -- see config_dir() -- and "
+    "new checkouts remember their ports there. If you have a config.toml "
+    "from an older build, move it into your tool's directory (or point "
+    "the tool at it with --config and let it save once): a file that "
+    "names your tool in its header still reads as yours, and one that "
+    "names another tool was never yours to keep. This move ships alone, "
+    "so a wrong turn here is one revert, not a hunt through five other "
+    "changes."
+)
+
+
+def migrate_legacy_config(
+    app_name: str, *, legacy: str = DEFAULT_PATH, target: str | None = None
+) -> str | None:
+    """Copy a legacy working-directory ``config.toml`` to ``target``.
+
+    The working part of the §3.7 migration: a file that already belongs
+    to ``app_name`` -- its header names this tool, or it has no family
+    header at all -- is copied byte for byte into the per-tool
+    directory, which defaults to :func:`default_config_path`. Returns
+    the path copied to, or ``None`` when there was nothing to move: no
+    legacy file, an unparseable one, one that belongs to another tool,
+    one holding tables or lists, or a ``target`` that already exists
+    and is never overwritten.
+
+    A copy, not a move: the old file stays until its owner deletes it,
+    so a migration that picked the wrong file costs nothing. Creating
+    the target directory is part of the copy; a directory that cannot
+    be created answers ``None`` like every other refusal here.
+    """
+    destination = target or default_config_path(app_name)
+    if os.path.exists(destination):
+        return None
+    store = Settings(app_name, legacy)
+    data, status, first_line = store._read_document(legacy)
+    owner = _owner(first_line)
+    if (
+        status != "ok"
+        or (owner is not None and owner != app_name)
+        or any(isinstance(value, (dict, list)) for value in data.values())
+    ):
+        return None
+    try:
+        with open(legacy, "rb") as handle:
+            raw = handle.read()
+    except OSError:
+        return None
+    parent = os.path.dirname(destination)
+    tmp = f"{destination}.{os.getpid()}.tmp"
+    try:
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(tmp, "wb") as handle:
+            handle.write(raw)
+        os.replace(tmp, destination)
+    except OSError:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        return None
+    return destination
