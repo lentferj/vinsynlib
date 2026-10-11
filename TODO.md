@@ -326,8 +326,14 @@ Notes for whoever does this:
 
 ## 4. Open, and not scheduled
 
+- **`docs/unify2.md`** — the second unification: what is still copied across
+  the family and should not be, with the evidence, the ranked list, the plan
+  and the open decisions. It is the thing to read before starting any of the
+  work below.
 - **Undo: Option A, decided**, with the constraints in §2.6.1 and the order
-  of work in §2.6.2. Nothing built yet.
+  of work in §2.6.2. Nothing built yet. `unify2.md` §3.5 adds the one piece
+  this section does not cover: the `HistoryScreen`, which cannot move before
+  the log does.
 - The remaining coverage gaps, all small error paths: `__init__.py:83`
   (`minimum=()`), `conformance.py` 166/168/200/243/272-273,
   `spec.py` 320-322/337, `cli.py` 240/256, `config.py` 214-215/292/336,
