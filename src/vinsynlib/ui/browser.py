@@ -25,6 +25,7 @@ class BrowserApp(App[None]):
         super().__init__()
         self.last_status = ""
         self.last_status_refused = False
+        self.last_progress = ""
 
     def compose(self) -> ComposeResult:
         yield Static("", id="status")
@@ -41,15 +42,19 @@ class BrowserApp(App[None]):
         print(message)
 
     def notify_progress(self, label: str, done: int, total: int) -> None:
-        refused = self.last_status_refused
-        self.last_status = label
+        progress = f"{label} {done}/{total}"
+        self.last_progress = progress
         status = self.query_one("#status", Static)
-        status.update(label)
-        if refused:
+        if self.last_status_refused:
+            # A refusal's message must persist (only the flag used to
+            # survive); record progress separately and keep the error
+            # styling until a plain notify_status clears it.
             status.add_class("refused")
-        else:
-            status.remove_class("refused")
-        print(label)
+            return
+        self.last_status = progress
+        status.update(progress)
+        status.remove_class("refused")
+        print(progress)
 
     def push_screen(  # type: ignore[override]
         self, screen: object, *, wait_for_dismiss: bool = False

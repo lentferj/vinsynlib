@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import cast
 
 import pytest
+from textual.widgets import Static
 
 from vinsynlib.ui.browser import BrowserApp
 
@@ -37,6 +38,16 @@ async def test_progress_never_overwrites_refusal() -> None:
         app = cast(BrowserApp, pilot.app)
         app.notify_status("bad", refused=True)
         assert app.last_status_refused is True
+        status = app.query_one("#status", Static)
+        assert status.has_class("refused")
         app.notify_progress("work", 2, 5)
-        assert app.last_status == "work"
+        # The refusal message survives; progress is recorded separately.
+        assert app.last_status == "bad"
         assert app.last_status_refused is True
+        assert app.last_progress == "work 2/5"
+        assert status.has_class("refused")
+        # A normal notify_status still clears the refusal flag.
+        app.notify_status("ok")
+        assert app.last_status == "ok"
+        assert app.last_status_refused is False
+        assert not status.has_class("refused")
