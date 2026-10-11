@@ -31,9 +31,7 @@ class Backup:
 
 
 def _encode_blocks(blocks: dict[str, bytes]) -> dict[str, str]:
-    return {
-        k: base64.b64encode(v).decode("ascii") for k, v in blocks.items()
-    }
+    return {k: base64.b64encode(v).decode("ascii") for k, v in blocks.items()}
 
 
 def _decode_blocks(blocks: dict[str, str]) -> dict[str, bytes]:
@@ -71,12 +69,7 @@ def save(  # noqa: PLR0913
         source=source,
         blocks=blocks,
     )
-    base = (
-        f"{_sanitize(kind)}_"
-        f"{_sanitize(slot)}_"
-        f"{_sanitize(name)}_"
-        f"{saved:.6f}"
-    )
+    base = f"{_sanitize(kind)}_{_sanitize(slot)}_{_sanitize(name)}_{saved:.6f}"
     filename = f"{base}.json"
     path = os.path.join(target_dir, filename)
     count = 1
@@ -119,12 +112,8 @@ def load(path: str) -> Backup:
         blocks = {}
     return Backup(
         kind=kind,
-        slot=data.get("slot", "")
-        if isinstance(data.get("slot"), str)
-        else "",
-        name=data.get("name", "")
-        if isinstance(data.get("name"), str)
-        else "",
+        slot=data.get("slot", "") if isinstance(data.get("slot"), str) else "",
+        name=data.get("name", "") if isinstance(data.get("name"), str) else "",
         saved=float(data.get("saved", 0))
         if isinstance(data.get("saved"), (int, float))
         else 0.0,
@@ -150,9 +139,10 @@ def list_backups(target_dir: str) -> list[Backup]:  # noqa: C901
             result.append(load(path))
         except Exception as exc:
             partial: dict[str, Any] = {}
-            with contextlib.suppress(Exception), open(
-                path, encoding="utf-8"
-            ) as f:
+            with (
+                contextlib.suppress(Exception),
+                open(path, encoding="utf-8") as f,
+            ):
                 partial = json.load(f)
             kind_str = partial.get("kind", "")
             if not isinstance(kind_str, str):
