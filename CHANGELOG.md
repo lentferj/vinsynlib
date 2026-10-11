@@ -16,6 +16,50 @@ CI goes red rather than after. Each such entry is marked **stricter**.
 The reasoning behind almost every entry lives in `TODO.md`, which records
 the 2026-10-09 code review the 0.3.0 work came from.
 
+## [Unreleased] — unify2 waves 2–5 (on `unify2-wave1-0.4.0`)
+
+Library only, no consumers yet. Each item landed with tests and no
+importers, per the per-extraction checklist.
+
+- **Transport (`midi.py`, §3.8).** `ThrottledOut` gaps only
+  0xF0-leading sends (ordinary MIDI passes through; `SYSEX_GAP` is a
+  floor, not a measured figure); `MultiIn` polls 1+ ports behind a
+  MidiIn-compatible facade; `open_input`/`open_output` open leak-free
+  with sysex on. eosed/s3ked `write_gap` and `_close_and_delete` knobs
+  are folded in as parameters.
+- **Identity (`midi.py`, §3.9).** `identity_request(device=0x7F)`,
+  frozen `IdentityReply`/`DeviceIdentity`, and
+  `parse_identity_reply` — which rejects an echoed Request (the
+  Thru-loop trap) and parses foreign-manufacturer Replies with no
+  manufacturer filter. Family-code predicates stay project-side.
+- **Undo log (`undo.py`, §3.5).** The R1–R6 log from `TODO.md` §2:
+  inspectable records, no threads/locks, apply/gate/status hooks, and
+  the pop-only-after-revert invariant. `HistoryScreen` is deferred.
+- **Backup envelope (`backup.py`, §3.14).** `FORMAT=1` JSON envelope
+  (`save` never overwrites, `load` refuses wrong version/kind,
+  `list_backups` surfaces corrupt files as data with `error`). Kinds
+  and names are caller-supplied; nothing here talks to MIDI.
+- **App contract (`ui/protocol.py`, §6.4) + `BrowserApp`
+  (`ui/browser.py`, §3.11) + worker (`ui/work.py`, §3.10).**
+  Screens type their caller as `AppProtocol`, never `BrowserApp`.
+  Load-bearing rule: progress never overwrites a refusal. `BusyGate`
+  refuses on the main thread before the worker and clears in `finally`;
+  `close_when_idle` never closes mid-exchange.
+- **Modals (`ui/modals.py`, §3.12).** `ReportScreen`, `ChoiceScreen`
+  (Enter `priority=True` — DataTable eats it otherwise),
+  `SearchScreen`, `RatingFilter` + `RatingFilterScreen`
+  (escape returns unchanged, x-then-enter clears), `CategoryScreen`
+  (`{code: (label, count)}` param, not `CATEGORY_NAMES`), and a
+  two-table `PickerScreen` with a shared `_slot` row-key parse.
+- **Catalog (`catalog.py` + `livenames.py`, §3.6).** Key is
+  `bank_id[:kind]:number` on the DISPLAY number (`kind` defaults
+  `""`); wire-keyed rows convert at the edge. No categories — those
+  are Roland's. The live-name sidecar persists between runs.
+- **Config (`config.py`, §3.7 + §3.15).** `config_dir(tool)` per-tool
+  default + `--config` help + a migration note for existing
+  `config.toml`; ui-state as a key-namespaced view (`UNSET` vs
+  `None`, bool-before-int, `None` removes the key).
+
 ## [0.3.1] — 2026-10-10
 
 A patch release, the same day as 0.3.0, because the first consumer to adopt
