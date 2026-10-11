@@ -20,6 +20,7 @@ from __future__ import annotations
 import ast
 import os
 import sys
+from io import StringIO
 from typing import Any
 
 import pytest
@@ -616,3 +617,113 @@ def test_an_os_error_from_the_probe_also_falls_back() -> None:
         probe=probe, sweep=sweep, remembered=("gone", "gone")
     )
     assert device.port == "found"
+
+
+# --- 3.1 launch reporter (say_* functions) -----------------------------
+
+
+def test_say_fallback_exact_text_and_custom_stream() -> None:
+    stream = StringIO()
+    midi.say_fallback(
+        "PortA", midi.DeviceError("gone"), stream=stream
+    )
+    assert stream.getvalue() == (
+        "PortA: remembered, but gone. Probing every port"
+        " (--scan does this on purpose).\n"
+    )
+
+
+def test_say_probing_exact_text_and_custom_stream() -> None:
+    stream = StringIO()
+    midi.say_probing("PortB", stream=stream)
+    assert stream.getvalue() == "  probing PortB...\n"
+
+
+def test_say_connected_exact_text_and_custom_stream() -> None:
+    stream = StringIO()
+    midi.say_connected("PortC", stream=stream)
+    assert stream.getvalue() == "PortC (remembered)\n"
+
+
+
+
+def test_the_four_hook_combinations() -> None:
+    """None / only on_try / only on_fallback / both."""
+    def probe(send: str, recv: str) -> FakeDevice:
+        raise midi.DeviceError("gone")
+
+    def sweep(on_try: Any = None) -> FakeDevice:
+        return FakeDevice("found")
+
+    # none -> library prints fallback line
+    import sys
+    original_stderr = sys.stderr
+    # Monkeypatch before the module uses its default; we redirect the
+    # original stderr object so the library's default writes here.
+    # Since the module is already imported, we redirect the captured ref.
+    # Actually the easiest is to test direct output via monkeypatching
+    # midi.say_fallback.
+    called_fallback: list[str] = []
+    original_fallback = midi.say_fallback
+
+    def tracking_fallback(
+        port: str, error: BaseException, *, stream=original_stderr
+    ) -> None:
+        called_fallback.append(port)
+        s = StringIO()
+        original_fallback(port, error, stream=s)
+        stream.write(s.getvalue())
+
+    midi.say_fallback = tracking_fallback  # type: ignore[assignment]
+    try:
+        # 1. none
+        called_fallback.clear()
+        midi.open_remembered_or_swept(
+            probe=probe, sweep=sweep, remembered=("gone", "gone")
+        )
+        assert called_fallback == ["gone"]
+
+        # 2. only on_try
+        called_fallback.clear()
+        said: list[str] = []
+        midi.open_remembered_or_swept(
+            probe=probe,
+            sweep=sweep,
+            remembered=("gone", "gone"),
+            on_try=said.append,
+        )
+        assert called_fallback == []
+        assert said and "did not answer" in said[0]
+
+        # 3. only on_fallback
+        called_fallback.clear()
+        heard: list[tuple[str, BaseException]] = []
+        midi.open_remembered_or_swept(
+            probe=probe,
+            sweep=sweep,
+            remembered=("gone", "gone"),
+            on_fallback=lambda p, e: heard.append((p, e)),
+        )
+        assert called_fallback == []
+        assert len(heard) == 1
+        assert heard[0][0] == "gone"
+        assert isinstance(heard[0][1], midi.DeviceError)
+
+        # 4. both
+        called_fallback.clear()
+        heard.clear()
+        said.clear()
+        midi.open_remembered_or_swept(
+            probe=probe,
+            sweep=sweep,
+            remembered=("gone", "gone"),
+            on_try=said.append,
+            on_fallback=lambda p, e: heard.append((p, e)),
+        )
+        assert called_fallback == []
+        assert len(heard) == 1
+        assert heard[0][0] == "gone"
+        assert isinstance(heard[0][1], midi.DeviceError)
+        assert said == []
+    finally:
+        midi.say_fallback = original_fallback  # type: ignore[assignment]

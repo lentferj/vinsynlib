@@ -50,7 +50,7 @@ from __future__ import annotations
 import signal
 import sys
 from collections.abc import Callable, Sequence
-from typing import Any, NoReturn, TypeVar
+from typing import Any, NoReturn, TextIO, TypeVar
 
 __all__ = [
     "DeviceError",
@@ -64,6 +64,9 @@ __all__ = [
     "list_ports",
     "open_remembered_or_swept",
     "render_ports",
+    "say_connected",
+    "say_fallback",
+    "say_probing",
 ]
 
 
@@ -189,6 +192,24 @@ def likely_ports(
 _Device = TypeVar("_Device")
 
 
+def say_probing(name: str, *, stream: TextIO = sys.stderr) -> None:
+    print(f"  probing {name}...", file=stream)
+
+
+def say_fallback(
+    port: str, error: BaseException, *, stream: TextIO = sys.stderr
+) -> None:
+    msg = (
+        f"{port}: remembered, but {error}. Probing every port"
+        f" (--scan does this on purpose)."
+    )
+    print(msg, file=stream)
+
+
+def say_connected(port: object, *, stream: TextIO = sys.stderr) -> None:
+    print(f"{port} (remembered)", file=stream)
+
+
 def open_remembered_or_swept(
     *,
     probe: Callable[[str, str], _Device],
@@ -239,6 +260,8 @@ def open_remembered_or_swept(
     single-argument hook, kept so a caller that only wants the family's
     one-line notice can pass that instead.
     """
+    if on_try is None and on_fallback is None:
+        on_fallback = say_fallback
     if remembered is not None and not scan:
         send_port, recv_port = remembered
         try:
