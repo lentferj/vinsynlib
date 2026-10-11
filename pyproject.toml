@@ -112,12 +112,16 @@ max-complexity = 10
 # deliberately: a handler that fails while tearing down must not replace
 # the failure the user was already being told about.
 #
-# PLR0913: `open_remembered_or_swept` takes one keyword per step of the
+# `open_remembered_or_swept` takes one keyword per step of the
 # policy -- what to try, what to sweep with, what was remembered, whether
 # to ignore it, where to record the answer, how to report progress. Six
 # keyword-only arguments that each say one thing beats a policy object
 # with six fields that each say one thing.
 "src/vinsynlib/midi.py" = ["PLC0415", "SIM105", "S110", "PLR0913"]
+# PickerScreen takes data + callbacks in: title, banks, current bank/slot,
+# kinds filter, status message. Splitting it would mean splitting the call
+# sites that each supply one piece of picker state.
+"src/vinsynlib/ui/modals.py" = ["PLR0913"]
 # `add_common_arguments` is a keyword-only bag of "does this tool have the
 # concept", one keyword per flag in the spec. Splitting it up would mean
 # splitting the spec.
