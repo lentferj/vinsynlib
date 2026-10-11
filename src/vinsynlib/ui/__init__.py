@@ -19,6 +19,7 @@
 
 """Shared widgets for the terminal front ends.
 
-Import a module, not this package: :mod:`vinsynlib.ui.hints` is the legend,
-and it is the only one here so far.
+Import a module, not this package: :mod:`vinsynlib.ui.hints` is the
+legend, and the rest of the package holds the other shared screens
+and helpers. Each module declares its own Textual dependency.
 """

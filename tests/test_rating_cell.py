@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from vinsynlib import favorites
 from vinsynlib.favorites import rating_cell
 
 
@@ -30,3 +31,7 @@ def test_star_never_appears() -> None:
 def test_zero_does_not_produce_dots() -> None:
     assert rating_cell(0) == ""
     assert "·" not in rating_cell(0)
+
+
+def test_rating_cell_is_exported() -> None:
+    assert "rating_cell" in favorites.__all__

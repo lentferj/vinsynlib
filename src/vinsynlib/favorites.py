@@ -83,6 +83,7 @@ __all__ = [
     "bind",
     "data_dir",
     "default_path",
+    "rating_cell",
     "split_key",
 ]
 
