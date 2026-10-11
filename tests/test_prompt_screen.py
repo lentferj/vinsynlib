@@ -39,9 +39,7 @@ async def test_submit_returns_the_input_value() -> None:
         results.append(result)
 
     async with PromptApp().run_test() as pilot:
-        await pilot.app.push_screen(
-            screen, callback=collect
-        )
+        await pilot.app.push_screen(screen, callback=collect)
         await pilot.press("enter")
         await pilot.pause()
 
@@ -60,9 +58,7 @@ async def test_cancel_returns_none() -> None:
         results.append(result)
 
     async with PromptApp().run_test() as pilot:
-        await pilot.app.push_screen(
-            screen, callback=collect
-        )
+        await pilot.app.push_screen(screen, callback=collect)
         await pilot.press("escape")
         await pilot.pause()
 
