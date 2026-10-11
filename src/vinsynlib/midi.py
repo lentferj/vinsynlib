@@ -49,19 +49,26 @@ from __future__ import annotations
 
 import signal
 import sys
+import time
 from collections.abc import Callable, Sequence
-from typing import Any, NoReturn, TextIO, TypeVar
+from typing import Any, NoReturn, TextIO, TypeVar, cast
 
 __all__ = [
+    "SYSEX_GAP",
     "DeviceError",
     "DeviceNotFound",
     "DeviceRefused",
     "MidiUnavailable",
+    "MultiIn",
+    "ThrottledOut",
+    "_close_and_delete",
     "bidirectional_ports",
     "fail",
     "install_clean_exit",
     "likely_ports",
     "list_ports",
+    "open_input",
+    "open_output",
     "open_remembered_or_swept",
     "render_ports",
     "say_connected",
@@ -352,3 +359,174 @@ def fail(message: str) -> NoReturn:
     prints in its own format; that is its business, not this function's.
     """
     raise SystemExit(f"error: {message}")
+
+# --- §3.8 transport additions (Agent A, independently mergeable) ------
+
+
+#: SysEx start byte; used by ThrottledOut.
+SYSEX_START = 0xF0
+
+#: Floor value for SysEx gaps; not a measured figure.
+SYSEX_GAP = 0.075
+
+
+def _close_and_delete(port: Any) -> None:
+    """Close *port* and reclaim its backend client, swallowing failures."""
+    try:
+        port.close_port()
+    except Exception:
+        pass
+    try:
+        port.delete()
+    except Exception:
+        pass
+
+
+class ThrottledOut:
+    """Wrap an rtmidi MidiOut so only 0xF0-leading sends are gapped."""
+
+    def __init__(
+        self,
+        port: Any,
+        gap: float = SYSEX_GAP,
+        *,
+        write_gap: float | None = None,
+    ) -> None:
+        self._port = port
+        self._gap = gap
+        self._write_gap = (
+            SYSEX_GAP if write_gap is None else write_gap
+        )
+        self._last = 0.0
+        self._owed = 0.0
+
+    def send_message(self, message: Any, *, write: bool = False) -> None:
+        if not message or message[0] != SYSEX_START:
+            self._port.send_message(message)
+            return
+        wait = self._owed - (time.time() - self._last)
+        if wait > 0:
+            time.sleep(wait)
+        self._port.send_message(message)
+        self._last = time.time()
+        self._owed = self._write_gap if write else self._gap
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._port, name)
+
+
+class MultiIn:
+    """MidiIn-compatible facade polling 1+ ports (merged input)."""
+
+    def __init__(self, port_name: str, *, exact: bool = False) -> None:
+        self.ports: list[Any] = []
+        rtmidi = _rtmidi()
+        probe = rtmidi.MidiIn()
+        try:
+            port_names = probe.get_ports()
+        finally:
+            try:
+                probe.delete()
+            except Exception:
+                pass
+        try:
+            for index, name in enumerate(port_names):
+                match = (
+                    name == port_name
+                    if exact
+                    else port_name.lower() in name.lower()
+                )
+                if match:
+                    port = rtmidi.MidiIn(queue_size_limit=8192)
+                    try:
+                        port.open_port(index)
+                    except Exception:
+                        _close_and_delete(port)
+                        raise
+                    port.ignore_types(sysex=False)
+                    self.ports.append(port)
+        except Exception:
+            for p in self.ports:
+                _close_and_delete(p)
+            self.ports = []
+            raise
+        if not self.ports:
+            raise RuntimeError(
+                f"no input port matching {port_name!r}"
+            )
+
+    def get_message(self) -> Any:
+        for port in self.ports:
+            msg = port.get_message()
+            if msg is not None:
+                return msg
+        return None
+
+    def get_ports(self) -> list[str]:
+        rtmidi = _rtmidi()
+        probe = rtmidi.MidiIn()
+        try:
+            return cast(list[str], probe.get_ports())
+        finally:
+            try:
+                probe.delete()
+            except Exception:
+                pass
+
+    def close_port(self) -> None:
+        for port in self.ports:
+            try:
+                port.close_port()
+            except Exception:
+                pass
+            try:
+                port.delete()
+            except Exception:
+                pass
+        self.ports = []
+
+
+def open_input(port_name: str) -> Any:
+    """Open a MidiIn with sysex enabled; leak-free on failure."""
+    rtmidi = _rtmidi()
+    port = rtmidi.MidiIn(queue_size_limit=8192)
+    try:
+        names = port.get_ports()
+    except Exception:
+        _close_and_delete(port)
+        raise
+    if port_name not in names:
+        _close_and_delete(port)
+        raise RuntimeError(
+            f"no input port named {port_name!r}; have {names}"
+        )
+    try:
+        port.open_port(names.index(port_name))
+    except Exception:
+        _close_and_delete(port)
+        raise
+    port.ignore_types(sysex=False)
+    return port
+
+
+def open_output(port_name: str) -> Any:
+    """Open a MidiOut with sysex on; leak-free on failure."""
+    rtmidi = _rtmidi()
+    port = rtmidi.MidiOut()
+    try:
+        names = port.get_ports()
+    except Exception:
+        _close_and_delete(port)
+        raise
+    if port_name not in names:
+        _close_and_delete(port)
+        raise RuntimeError(
+            f"no output port named {port_name!r}; have {names}"
+        )
+    try:
+        port.open_port(names.index(port_name))
+    except Exception:
+        _close_and_delete(port)
+        raise
+    return port
+
