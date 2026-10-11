@@ -361,6 +361,7 @@ def fail(message: str) -> NoReturn:
     """
     raise SystemExit(f"error: {message}")
 
+
 # --- §3.8 transport additions (Agent A, independently mergeable) ------
 
 
@@ -395,9 +396,7 @@ class ThrottledOut:
     ) -> None:
         self._port = port
         self._gap = gap
-        self._write_gap = (
-            SYSEX_GAP if write_gap is None else write_gap
-        )
+        self._write_gap = SYSEX_GAP if write_gap is None else write_gap
         self._last = 0.0
         self._owed = 0.0
 
@@ -452,9 +451,7 @@ class MultiIn:
             self.ports = []
             raise
         if not self.ports:
-            raise RuntimeError(
-                f"no input port matching {port_name!r}"
-            )
+            raise RuntimeError(f"no input port matching {port_name!r}")
 
     def get_message(self) -> Any:
         for port in self.ports:
@@ -498,9 +495,7 @@ def open_input(port_name: str) -> Any:
         raise
     if port_name not in names:
         _close_and_delete(port)
-        raise RuntimeError(
-            f"no input port named {port_name!r}; have {names}"
-        )
+        raise RuntimeError(f"no input port named {port_name!r}; have {names}")
     try:
         port.open_port(names.index(port_name))
     except Exception:
@@ -521,9 +516,7 @@ def open_output(port_name: str) -> Any:
         raise
     if port_name not in names:
         _close_and_delete(port)
-        raise RuntimeError(
-            f"no output port named {port_name!r}; have {names}"
-        )
+        raise RuntimeError(f"no output port named {port_name!r}; have {names}")
     try:
         port.open_port(names.index(port_name))
     except Exception:
@@ -533,6 +526,7 @@ def open_output(port_name: str) -> Any:
 
 
 # --- §3.9 identity additions (Agent B, independently mergeable) ----------
+
 
 def identity_request(device: int = 0x7F) -> bytes:
     """Universal Identity Request for *device*."""

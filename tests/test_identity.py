@@ -12,7 +12,6 @@ from vinsynlib import midi
 
 
 def _build_reply(
-
     device: int = 0x7F,
     mfr_first: int = 0x01,
     family_lsb: int = 0x01,
@@ -121,17 +120,13 @@ def test_f0_7d_is_rejected() -> None:
 
 
 def test_identity_reply_dataclass_frozen() -> None:
-    reply = midi.IdentityReply(
-        device=1, family=2, family_number=3, revision=4
-    )
+    reply = midi.IdentityReply(device=1, family=2, family_number=3, revision=4)
     with pytest.raises(AttributeError):
         reply.device = 99  # type: ignore[misc]
 
 
 def test_device_identity_dataclass_frozen() -> None:
-    reply = midi.IdentityReply(
-        device=1, family=2, family_number=3, revision=4
-    )
+    reply = midi.IdentityReply(device=1, family=2, family_number=3, revision=4)
     identity = midi.DeviceIdentity(
         send_port="out", recv_port="in", reply=reply
     )
