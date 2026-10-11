@@ -62,7 +62,6 @@ __all__ = [
     "MidiUnavailable",
     "MultiIn",
     "ThrottledOut",
-    "_close_and_delete",
     "bidirectional_ports",
     "fail",
     "install_clean_exit",
@@ -506,7 +505,11 @@ def open_input(port_name: str) -> Any:
 
 
 def open_output(port_name: str) -> Any:
-    """Open a MidiOut with sysex on; leak-free on failure."""
+    """Open a MidiOut; leak-free on failure.
+
+    Unlike :class:`MidiIn`, rtmidi's ``MidiOut`` has no ``ignore_types``
+    and does not filter SysEx, so there is nothing to switch on here.
+    """
     rtmidi = _rtmidi()
     port = rtmidi.MidiOut()
     try:
@@ -560,14 +563,12 @@ _ID_REQ_SUB2_REQ = 0x01
 _ID_REQ_SUB2_REPLY = 0x02
 _MIN_ID_LENGTH = 7
 _MIN_INNER_LENGTH = 5
-_CUSTOM_SYSEX_START = 0x7D
-_REALTIME_SYSEX_START = 0x7F
 _MFR_3BYTE_FIRST = 0x00
 _MIN_SUB_ID_OFFSET = 4
 _REMAINING_SIZE = 8
 
 
-def parse_identity_reply(  # noqa: C901, PLR0911
+def parse_identity_reply(  # noqa: PLR0911
     frame: bytes | Sequence[int],
 ) -> IdentityReply | None:
     """Parse an Identity Reply, or None for non-reply / broken frames."""
@@ -575,11 +576,10 @@ def parse_identity_reply(  # noqa: C901, PLR0911
     if len(data) < _MIN_ID_LENGTH or data[0] != _F0 or data[-1] != _F7:
         return None
     inner = data[1:-1]
-    if sum(inner) % 128 != 0:
-        return None
+    # No checksum: the Universal Identity Reply has none. The Request/Reply
+    # discrimination below (sub-ID 06 01 vs 06 02) is what guards the
+    # Thru-loop trap, not a sum.
     if len(inner) < _MIN_INNER_LENGTH or inner[0] != _SYSEX_START:
-        return None
-    if inner[0] == _CUSTOM_SYSEX_START or inner[0] == _REALTIME_SYSEX_START:
         return None
     if (
         len(inner) >= _MIN_SUB_ID_OFFSET

@@ -20,7 +20,11 @@ def _build_reply(
     family_num_msb: int = 0x00,
     version_bytes: bytes = b"\x00\x03\x00\x04",
 ) -> bytes:
-    """Build an Identity Reply frame whose inner bytes sum to 0 mod 128."""
+    """Build a spec-shaped Identity Reply frame.
+
+    The Universal Identity Reply has no checksum byte, so neither does
+    this frame: it is the real wire shape.
+    """
     inner = [
         0x7E,
         device,
@@ -32,8 +36,6 @@ def _build_reply(
         family_num_lsb,
         family_num_msb,
     ] + list(version_bytes)
-    checksum = (128 - (sum(inner) % 128)) % 128
-    inner.append(checksum)
     return bytes([0xF0, *inner, 0xF7])
 
 
@@ -73,11 +75,14 @@ def test_truncated_frame_is_none() -> None:
     assert midi.parse_identity_reply(truncated) is None
 
 
-def test_broken_checksum_is_none() -> None:
+def test_no_checksum_reply_parses() -> None:
+    # Regression: a real Identity Reply carries NO checksum, so its inner
+    # bytes do not sum to 0 mod 128. The parser must accept it anyway.
     frame = _build_reply()
-    broken = bytearray(frame)
-    broken[-2] = (broken[-2] + 1) % 128  # corrupt checksum byte
-    assert midi.parse_identity_reply(bytes(broken)) is None
+    assert sum(frame[1:-1]) % 128 != 0
+    reply = midi.parse_identity_reply(frame)
+    assert reply is not None
+    assert reply.device == 0x7F
 
 
 def test_custom_manufacturer_reply_parses() -> None:
@@ -91,8 +96,6 @@ def test_three_byte_manufacturer_parses() -> None:
     inner_base = [0x7E, 0x7F, 0x06, 0x02, 0x00, 0x20, 0x00]
     inner_base += [0x01, 0x00, 0x02, 0x00]
     inner_base += list(b"\x00\x01\x00\x02")
-    checksum = (128 - (sum(inner_base) % 128)) % 128
-    inner_base.append(checksum)
     frame = bytes([0xF0, *inner_base, 0xF7])
     reply = midi.parse_identity_reply(frame)
     assert reply is not None
@@ -110,13 +113,75 @@ def test_foreign_manufacturer_parses() -> None:
 
 
 def test_f0_7d_is_rejected() -> None:
-    # Custom/manufacturer header must be rejected.
+    # A 0x7D custom header is not an Identity Reply; rejected by the
+    # inner[0] != 0x7E test (the reply must start with 0x7E).
     inner = [0x7D, 0x7F, 0x06, 0x02, 0x01, 0x01, 0x00, 0x02, 0x00]
     inner += list(b"\x00\x03\x00\x04")
-    checksum = (128 - (sum(inner) % 128)) % 128
-    inner.append(checksum)
     frame = bytes([0xF0, *inner, 0xF7])
     assert midi.parse_identity_reply(frame) is None
+
+
+def test_literal_korg_and_roland_replies_parse() -> None:
+    # Literal spec-shaped replies with no checksum: Korg 0x42 and
+    # Roland 0x41. Neither inner sum is 0 mod 128.
+    def reply(mfr: int) -> bytes:
+        return bytes(
+            [
+                0xF0,
+                0x7E,
+                0x00,
+                0x06,
+                0x02,
+                mfr,
+                0x01,
+                0x00,
+                0x02,
+                0x00,
+                0x00,
+                0x03,
+                0x00,
+                0x04,
+                0xF7,
+            ]
+        )
+
+    for mfr in (0x42, 0x41):
+        frame = reply(mfr)
+        assert sum(frame[1:-1]) % 128 != 0
+        parsed = midi.parse_identity_reply(frame)
+        assert parsed is not None
+        assert parsed.device == 0x00
+        assert parsed.family == 0x0001
+        assert parsed.family_number == 0x0002
+        assert parsed.revision == 0x00030004
+
+
+def test_documented_akai_reply_parses() -> None:
+    # A literal documented Identity Reply from AKAISDS
+    # (src/core/midi_identity.py), wrapped in the F0/F7 the sample omits.
+    # It has no checksum and must parse.
+    inner = [
+        0x7E,
+        0x00,
+        0x06,
+        0x02,
+        0x47,
+        0x01,
+        0x02,
+        0x03,
+        0x04,
+        0x01,
+        0x00,
+        0x00,
+        0x00,
+    ]
+    frame = bytes([0xF0, *inner, 0xF7])
+    reply = midi.parse_identity_reply(frame)
+    assert reply is not None
+    assert reply.device == 0x00
+    assert reply.family == 0x0101  # 0x01 | (0x02 << 7)
+    assert reply.family_number == 0x0203  # 0x03 | (0x04 << 7)
+    assert reply.revision == 0x01000000
 
 
 def test_identity_reply_dataclass_frozen() -> None:
