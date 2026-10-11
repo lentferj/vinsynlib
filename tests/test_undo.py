@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from vinsynlib.undo import Record, UndoLog
 
 
@@ -60,7 +62,8 @@ def test_pop_only_after_successful_revert() -> None:
     result = log.undo()
     assert applied == []
     assert len(log) == 2
-    assert result == "nothing to undo"
+    assert result == "undo failed: RuntimeError: fail"
+    assert isinstance(log.last_error, RuntimeError)
 
 
 def test_undo_all_newest_first() -> None:
@@ -94,7 +97,8 @@ def test_undo_all_stops_on_first_failure() -> None:
     result = log.undo_all()
     assert applied == [3]
     assert len(log) == 2
-    assert result == "undid 1"
+    assert result == "undid 1; failed: RuntimeError: fail"
+    assert isinstance(log.last_error, RuntimeError)
 
 
 def test_empty_log_message() -> None:
@@ -125,7 +129,10 @@ def test_status_hook_called() -> None:
     def status_hook(msg: str) -> None:
         messages.append(msg)
 
-    log = UndoLog(status_hook=status_hook)
+    def apply_hook(record: Record) -> None:
+        return None
+
+    log = UndoLog(apply_hook=apply_hook, status_hook=status_hook)
     log.push(Record("a", 1))
     log.undo()
     assert "undid 1" in messages
@@ -150,3 +157,53 @@ def test_undo_all_applies_newest_first_then_pops() -> None:
     log.push(Record("b", 2))
     assert bool(log) is True
     assert len(log) == 2
+
+
+def test_undo_without_apply_hook_raises() -> None:
+    log = UndoLog()
+    log.push(Record("a", 1))
+    with pytest.raises(RuntimeError):
+        log.undo()
+    assert len(log) == 1
+    with pytest.raises(RuntimeError):
+        log.undo_all()
+    assert len(log) == 1
+
+
+def test_empty_log_without_hook_is_still_empty_message() -> None:
+    log = UndoLog()
+    assert log.undo() == "nothing to undo"
+    assert log.undo_all() == "nothing to undo"
+
+
+def test_failure_message_is_emitted_and_named() -> None:
+    messages: list[str] = []
+
+    def apply_hook(record: Record) -> None:
+        raise RuntimeError("boom")
+
+    def status_hook(msg: str) -> None:
+        messages.append(msg)
+
+    log = UndoLog(apply_hook=apply_hook, status_hook=status_hook)
+    log.push(Record("a", 1))
+    assert log.undo() == "undo failed: RuntimeError: boom"
+    assert messages == ["undo failed: RuntimeError: boom"]
+
+
+def test_last_error_cleared_by_successful_undo() -> None:
+    calls = 0
+
+    def apply_hook(record: Record) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("fail")
+
+    log = UndoLog(apply_hook=apply_hook)
+    log.push(Record("a", 1))
+    log.push(Record("b", 2))
+    assert log.undo() == "undo failed: RuntimeError: fail"
+    assert log.last_error is not None
+    assert log.undo() == "undid 1"
+    assert log.last_error is None
