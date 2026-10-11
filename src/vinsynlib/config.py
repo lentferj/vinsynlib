@@ -831,15 +831,14 @@ def config_help(tool: str) -> str:
 #: where a file lives, so it ships in its own release and says so here.
 MIGRATION_NOTE = (
     "Nine tools defaulted to the same relative config.toml, kept apart "
-    "only by the header guard in vinsynlib.config. From this release "
-    "each tool defaults to its own directory -- see config_dir() -- and "
-    "new checkouts remember their ports there. If you have a config.toml "
-    "from an older build, move it into your tool's directory (or point "
-    "the tool at it with --config and let it save once): a file that "
-    "names your tool in its header still reads as yours, and one that "
-    "names another tool was never yours to keep. This move ships alone, "
-    "so a wrong turn here is one revert, not a hunt through five other "
-    "changes."
+    "only by the header guard in vinsynlib.config. config_dir(tool) and "
+    "default_config_path(tool) are available so a new tool can opt in "
+    "to a per-tool directory; shipped tools keep the relative default "
+    "until they adopt it. If you have a config.toml from an older build, "
+    "point the tool at it with --config and let it save once: a file "
+    "that names your tool in its header still reads as yours, and one "
+    "that names another tool was never yours to keep. Changing the "
+    "default moves the file, so it is its own release."
 )
 
 

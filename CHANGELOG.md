@@ -16,17 +16,27 @@ CI goes red rather than after. Each such entry is marked **stricter**.
 The reasoning behind almost every entry lives in `TODO.md`, which records
 the 2026-10-09 code review the 0.3.0 work came from.
 
-## [Unreleased] — unify2 waves 2–5 (on `unify2-wave1-0.4.0`)
+## [Unreleased] — unify2 waves 1–5 (on `unify2-wave1-0.4.0`)
 
 Library only, no consumers yet. Each item landed with tests and no
 importers, per the per-extraction checklist.
 
+- **Wave 1 (0.4.0).** Launch reporter: `midi.say_probing`,
+  `say_fallback` and `say_connected` (the family's one-line notices;
+  `open_remembered_or_swept` installs `say_fallback` by default when
+  neither hook is passed). `PromptScreen` modal text prompt
+  (`ModalScreen[str | None]`; `escape` cancels). `ConfirmScreen`
+  yes/no modal (`ModalScreen[bool]`; `y` confirms, `n`/`escape`
+  cancel; `danger` flag for destructive actions). `favorites.rating_cell`
+  rating glyph (filled stars plus empty dots, blank for zero,
+  five-dot scale). `render.py` headless `table` and `progress`
+  helpers (no Textual).
 - **Transport (`midi.py`, §3.8).** `ThrottledOut` gaps only
   0xF0-leading sends (ordinary MIDI passes through; `SYSEX_GAP` is a
   floor, not a measured figure); `MultiIn` polls 1+ ports behind a
-  MidiIn-compatible facade; `open_input`/`open_output` open leak-free
-  with sysex on. eosed/s3ked `write_gap` and `_close_and_delete` knobs
-  are folded in as parameters.
+  MidiIn-compatible facade; `open_input` enables SysEx and opens
+  leak-free; `open_output` opens leak-free. eosed/s3ked `write_gap`
+  and the `_close_and_delete` helper are folded in.
 - **Identity (`midi.py`, §3.9).** `identity_request(device=0x7F)`,
   frozen `IdentityReply`/`DeviceIdentity`, and
   `parse_identity_reply` — which rejects an echoed Request (the
@@ -55,10 +65,12 @@ importers, per the per-extraction checklist.
   `bank_id[:kind]:number` on the DISPLAY number (`kind` defaults
   `""`); wire-keyed rows convert at the edge. No categories — those
   are Roland's. The live-name sidecar persists between runs.
-- **Config (`config.py`, §3.7 + §3.15).** `config_dir(tool)` per-tool
-  default + `--config` help + a migration note for existing
-  `config.toml`; ui-state as a key-namespaced view (`UNSET` vs
-  `None`, bool-before-int, `None` removes the key).
+- **Config (`config.py`, §3.7 + §3.15).** `config_dir(tool)` and
+  `default_config_path(tool)` are available for a new tool to opt in
+  to a per-tool directory; shipped tools keep the relative default
+  until they adopt it. `MIGRATION_NOTE` and `config_help` for anyone
+  with an existing `config.toml`. ui-state as a key-namespaced view
+  (`UNSET` vs `None`, bool-before-int, `None` removes the key).
 
 ### Review fixes — 2026-10-11 (DS41F)
 
@@ -89,7 +101,10 @@ Fixes from the code review of the above, `docs`-free and library-only.
   unchanged.
 - **Nits:** `open_output`'s docstring corrected (MidiOut does not gate
   SysEx); the unreachable `0x7D`/`0x7F` branch removed;
-  `_close_and_delete` is no longer exported.
+  `_close_and_delete` is no longer exported. W1 (mid-import
+  `dataclasses` cost in `midi.py`): every consumer already imports
+  `dataclasses` (3-13 sites each), so the real-world marginal cost
+  is zero; no change.
 
 ## [0.3.1] — 2026-10-10
 
