@@ -41,12 +41,18 @@ class BusyGate:
 
     If `refuse()` is called before the context is entered, the context
     manager raises `RuntimeError` immediately and the body does not run.
-    The gate clears its state in `__exit__` (finally block), so even
-    cancellation or exceptions leave it clean.
+
+    Entering the context also marks the gate as *in progress* for the
+    duration of the body; `is_busy()` reports this so that an idle-close
+    can tell a live exchange (context held) apart from a pending refusal
+    (`check()`). The gate clears both its refusal and its in-progress
+    state in `__exit__` (a finally-safe path), so even cancellation or
+    exceptions leave it clean.
     """
 
     def __init__(self) -> None:
         self._refused: str | None = None
+        self._active = 0
         self._lock = threading.Lock()
         self._owner_thread = threading.current_thread()
 
@@ -65,12 +71,24 @@ class BusyGate:
         with self._lock:
             return self._refused
 
+    def is_busy(self) -> bool:
+        """Return True while a `with gate:` body is in progress.
+
+        This is distinct from `check()`: `check()` reports a *pending
+        refusal*, whereas `is_busy()` reports an *active exchange* whose
+        context is currently held. Either means an idle-close must not
+        happen.
+        """
+        with self._lock:
+            return self._active > 0
+
     def __enter__(self) -> BusyGate:
         with self._lock:
             if self._refused is not None:
                 reason = self._refused
                 self._refused = None
                 raise RuntimeError(reason)
+            self._active += 1
         return self
 
     def __exit__(
@@ -81,6 +99,8 @@ class BusyGate:
     ) -> None:
         with self._lock:
             self._refused = None
+            if self._active > 0:
+                self._active -= 1
 
 
 @contextmanager
@@ -92,10 +112,11 @@ def close_when_idle(
 ) -> Iterator[None]:
     """Wait for the bridge to go idle, then close it.
 
-    This never closes mid-exchange. It waits for `gate.check()` to return
-    None (no active operation) for `grace` seconds, then calls the bridge's
-    `close()` method. If `gate.refuse()` is called during the wait, the
-    wait is aborted and the bridge is not closed by this context manager.
+    This never closes mid-exchange. It waits for the gate to be neither
+    refused (`check()`) nor in progress (`is_busy()`) for `grace`
+    seconds, then calls the bridge's `close()` method. If either signal
+    appears during the wait, the wait is aborted and the bridge is not
+    closed by this context manager.
 
     The `grace` parameter is the quiescence window — the bridge must stay
     idle for this long before we close it.
@@ -106,8 +127,8 @@ def close_when_idle(
         deadline = time.time() + grace
         should_close = True
         while time.time() < deadline:
-            if gate.check() is not None:
-                # An operation started; abort the idle-close
+            if gate.check() is not None or gate.is_busy():
+                # An operation is pending or in flight; abort the close
                 should_close = False
                 break
             time.sleep(0.01)

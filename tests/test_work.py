@@ -170,3 +170,46 @@ def test_close_when_idle_no_grace_if_already_busy() -> None:
 
     # Should not close because gate was busy
     assert bridge.closed is False
+
+
+def test_close_when_idle_holds_off_while_exchange_in_flight() -> None:
+    """An in-flight `with gate:` on another thread blocks the close.
+
+    The gate's refusal has already been consumed by `__enter__`, so
+    `check()` reads clear while the exchange runs. `is_busy()` is the
+    signal that keeps close_when_idle from closing mid-exchange; once
+    the body has exited, the bridge closes on the next idle window.
+    """
+    bridge = FakeBridge()
+    gate = BusyGate()
+    entered = threading.Event()
+    release = threading.Event()
+
+    def hold_gate() -> None:
+        with gate:
+            entered.set()
+            release.wait(timeout=2.0)
+
+    t = threading.Thread(target=hold_gate)
+    t.start()
+    assert entered.wait(timeout=2.0)
+
+    # No refusal is pending, yet an exchange is in progress.
+    assert gate.check() is None
+    assert gate.is_busy() is True
+
+    with close_when_idle(bridge, gate=gate, grace=0.1):
+        pass
+
+    # The in-flight exchange must block the close.
+    assert bridge.closed is False
+
+    release.set()
+    t.join(timeout=2.0)
+    assert gate.is_busy() is False
+
+    # Now idle: the bridge closes.
+    with close_when_idle(bridge, gate=gate, grace=0.05):
+        pass
+
+    assert bridge.closed is True
