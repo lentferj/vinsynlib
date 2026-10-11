@@ -21,9 +21,11 @@ from typing import Any, cast
 
 from textual.app import App, ComposeResult
 
+from vinsynlib.catalog import make_key, split_key
 from vinsynlib.ui.modals import (
     CategoryScreen,
     ChoiceScreen,
+    PickerBank,
     PickerScreen,
     RatingFilter,
     RatingFilterScreen,
@@ -361,8 +363,11 @@ async def test_category_screen_sends_status() -> None:
 
 
 async def test_picker_screen_returns_bank_and_slot() -> None:
-    banks = [("u:1", "User 1", 8), ("u:2", "User 2", 8)]
-    screen = PickerScreen("Picker", banks, "u:1", 3)
+    banks = [
+        PickerBank("USER1", "User 1", 8),
+        PickerBank("USER2", "User 2", 8),
+    ]
+    screen = PickerScreen("Picker", banks, "USER1", 3)
     results: list[Any] = []
 
     def collect(result: Any) -> None:
@@ -373,12 +378,12 @@ async def test_picker_screen_returns_bank_and_slot() -> None:
         await pilot.press("enter")
         await pilot.pause()
 
-    assert results == [("u:1", 3)]
+    assert results == [("USER1", 3, "")]
 
 
 async def test_picker_screen_escape_returns_none() -> None:
-    banks = [("u:1", "User 1", 8)]
-    screen = PickerScreen("Picker", banks, "u:1", 1)
+    banks = [PickerBank("USER1", "User 1", 8)]
+    screen = PickerScreen("Picker", banks, "USER1", 1)
     results: list[Any] = []
 
     def collect(result: Any) -> None:
@@ -393,8 +398,12 @@ async def test_picker_screen_escape_returns_none() -> None:
 
 
 async def test_picker_screen_navigate_banks_with_left_right() -> None:
-    banks = [("u:1", "User 1", 4), ("u:2", "User 2", 4), ("u:3", "User 3", 4)]
-    screen = PickerScreen("Picker", banks, "u:2", 2)
+    banks = [
+        PickerBank("USER1", "User 1", 4),
+        PickerBank("USER2", "User 2", 4),
+        PickerBank("USER3", "User 3", 4),
+    ]
+    screen = PickerScreen("Picker", banks, "USER2", 2)
     results: list[Any] = []
 
     def collect(result: Any) -> None:
@@ -406,12 +415,12 @@ async def test_picker_screen_navigate_banks_with_left_right() -> None:
         await pilot.press("enter")
         await pilot.pause()
 
-    assert results == [("u:1", 1)]
+    assert results == [("USER1", 1, "")]
 
 
 async def test_picker_screen_slot_selection_updates_current() -> None:
-    banks = [("u:1", "User 1", 4)]
-    screen = PickerScreen("Picker", banks, "u:1", 1)
+    banks = [PickerBank("USER1", "User 1", 4)]
+    screen = PickerScreen("Picker", banks, "USER1", 1)
     results: list[Any] = []
 
     def collect(result: Any) -> None:
@@ -426,12 +435,17 @@ async def test_picker_screen_slot_selection_updates_current() -> None:
         await pilot.press("enter")
         await pilot.pause()
 
-    assert results == [("u:1", 3)]
+    assert results == [("USER1", 3, "")]
 
 
 async def test_picker_screen_kinds_filter() -> None:
-    banks = [("u:1", "User 1", 4), ("p:1", "Preset 1", 4)]
-    screen = PickerScreen("Picker", banks, "u:1", 1, kinds=("u",))
+    banks = [
+        PickerBank("RAM1", "Patches", 4, "PATCH"),
+        PickerBank("RAM1", "Performances", 4, "PERF"),
+    ]
+    screen = PickerScreen(
+        "Picker", banks, "RAM1", 1, current_kind="PERF", kinds=("PERF",)
+    )
     results: list[Any] = []
 
     def collect(result: Any) -> None:
@@ -442,29 +456,59 @@ async def test_picker_screen_kinds_filter() -> None:
         await pilot.press("enter")
         await pilot.pause()
 
-    assert results == [("u:1", 1)]
+    assert results == [("RAM1", 1, "PERF")]
 
 
 async def test_picker_screen_shared_slot_parse() -> None:
-    """Test the internal _slot parser."""
-    banks = [("u:1", "User 1", 4)]
-    screen = PickerScreen("Picker", banks, "u:1", 1)
+    """The internal _slot parser speaks the catalog's grammar."""
+    banks = [PickerBank("USER1", "User 1", 4)]
+    screen = PickerScreen("Picker", banks, "USER1", 1)
 
-    # Test valid parse
-    parsed = screen._slot("u:1:003")
-    assert parsed == ("u:1", 3)
+    # Test valid parses
+    assert screen._slot("USER1:003") == ("USER1", "", 3)
+    assert screen._slot("RAM1:PERF:007") == ("RAM1", "PERF", 7)
 
     # Test invalid parses
     assert screen._slot("invalid") is None
-    assert screen._slot("u:") is None
+    assert screen._slot("USER1:") is None
     assert screen._slot(":003") is None
-    assert screen._slot("u:abc") is None
+    assert screen._slot("USER1:abc") is None
+
+
+async def test_picker_row_key_round_trips_through_catalog() -> None:
+    """A picker row key is a catalog key, both ways round."""
+    banks = [PickerBank("RAM1", "Performances", 8, "PERF")]
+    screen = PickerScreen("Picker", banks, "RAM1", 7, current_kind="PERF")
+    results: list[Any] = []
+
+    def collect(result: Any) -> None:
+        results.append(result)
+
+    async with ModalApp().run_test() as pilot:
+        await pilot.app.push_screen(screen, callback=collect)
+        await pilot.press("enter")
+        await pilot.pause()
+
+    assert results == [("RAM1", 7, "PERF")]
+    bank_id, number, kind = results[0]
+    # Feeding the emitted triple back through make_key rebuilds the row
+    # key the picker put in its table, and split_key reads it straight
+    # back to the same (bank_id, kind, number).
+    row_key = make_key(bank_id, number, kind)
+    assert row_key == "RAM1:PERF:007"
+    assert split_key(row_key) == (bank_id, kind, number)
+    # The keys the picker actually built are those catalog keys.
+    stored = [str(key.value) for key in screen._slot_row_keys]
+    assert "RAM1:PERF:007" in stored
+    for key in stored:
+        found_bank, found_kind, found_number = split_key(key)
+        assert make_key(found_bank, found_number, found_kind) == key
 
 
 async def test_picker_screen_sends_status() -> None:
-    banks = [("u:1", "User 1", 4)]
+    banks = [PickerBank("USER1", "User 1", 4)]
     screen = PickerScreen(
-        "Picker", banks, "u:1", 1, status_message="Pick slot"
+        "Picker", banks, "USER1", 1, status_message="Pick slot"
     )
     async with ModalApp().run_test() as pilot:
         await pilot.app.push_screen(screen)

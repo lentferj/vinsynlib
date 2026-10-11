@@ -173,6 +173,16 @@ def test_load_missing_is_empty(
     assert not load(None)
 
 
+def test_load_rejects_non_dict_banks(
+    tmp_path: pathlib.Path,
+) -> None:
+    path = str(tmp_path / "catalog.json")
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump({"banks": ["not", "a", "dict"]}, handle)
+    with pytest.raises(ValueError, match="is not a catalog"):
+        load(path)
+
+
 def test_load_skips_bad_rows(
     tmp_path: pathlib.Path,
 ) -> None:

@@ -32,11 +32,13 @@ from textual.containers import Horizontal
 from textual.screen import ModalScreen
 from textual.widgets import Checkbox, DataTable, Input, Label, Static
 
+from ..catalog import make_key, split_key
 from .protocol import AppProtocol
 
 __all__ = [
     "CategoryScreen",
     "ChoiceScreen",
+    "PickerBank",
     "PickerScreen",
     "RatingFilter",
     "RatingFilterScreen",
@@ -431,14 +433,35 @@ class CategoryScreen(ModalScreen[set[str] | None]):
             app.notify_status(message)
 
 
-class PickerScreen(ModalScreen[tuple[str, int] | None]):
+@dataclass(frozen=True)
+class PickerBank:
+    """One bank row in a :class:`PickerScreen`.
+
+    ``kind`` is optional and defaults to ``""`` for the common
+    single-kind bank. A bank id holding two kinds under one name
+    carries a kind, so its slots key as ``BANK:KIND:NNN`` -- the same
+    grammar :mod:`vinsynlib.catalog` writes.
+    """
+
+    bank_id: str
+    label: str
+    count: int
+    kind: str = ""
+
+
+class PickerScreen(ModalScreen[tuple[str, int, str] | None]):
     """Two-level picker: bank table over slot table.
 
     - Left table shows banks with ``<-`` marker on the current bank.
     - Right table shows slots for the selected bank.
-    - Shared ``_slot`` method parses ``BANK:NNN`` row keys.
+    - Row keys are :mod:`vinsynlib.catalog` keys -- ``BANK:NNN`` or
+      ``BANK:KIND:NNN`` -- built with :func:`catalog.make_key` and read
+      back with :func:`catalog.split_key`, so a picker key and a catalog
+      key are one string meaning one slot, not two grammars.
     - ``kinds`` parameter filters which bank kinds are shown.
-    - Returns ``(bank_id, slot_number)`` on confirm, ``None`` on cancel.
+    - Returns ``(bank_id, slot_number, kind)`` on confirm, ``None`` on
+      cancel. Feeding the triple to :func:`catalog.make_key` rebuilds
+      the row key it was read from.
     """
 
     BINDINGS: ClassVar[list[Any]] = [
@@ -451,10 +474,11 @@ class PickerScreen(ModalScreen[tuple[str, int] | None]):
     def __init__(
         self,
         title: str,
-        banks: list[tuple[str, str, int]],  # (bank_id, label, slot_count)
+        banks: list[PickerBank],
         current_bank: str,
         current_slot: int,
         *,
+        current_kind: str = "",
         kinds: tuple[str, ...] = (),
         status_message: str = "",
         id: str | None = None,
@@ -462,14 +486,15 @@ class PickerScreen(ModalScreen[tuple[str, int] | None]):
     ) -> None:
         super().__init__(id=id, **kwargs)
         self._title = title
-        self._all_banks = banks
+        self._all_banks = list(banks)
         self._kinds = kinds
         self._current_bank = current_bank
+        self._current_kind = current_kind
         self._current_slot = current_slot
         self._status_message = status_message
         self._bank_table: DataTable[Any] | None = None
         self._slot_table: DataTable[Any] | None = None
-        self._filtered_banks: list[tuple[str, str, int]] = []
+        self._filtered_banks: list[PickerBank] = []
         self._bank_row_keys: list[Any] = []
         self._slot_row_keys: list[Any] = []
         self._mounting = False
@@ -501,8 +526,8 @@ class PickerScreen(ModalScreen[tuple[str, int] | None]):
             self._populate_bank_table()
             self._populate_slot_table()
             if self._bank_table and self._filtered_banks:
-                for i, (bid, _, _) in enumerate(self._filtered_banks):
-                    if bid == self._current_bank:
+                for i, bank in enumerate(self._filtered_banks):
+                    if self._is_current(bank):
                         self._bank_table.move_cursor(row=i)
                         break
         finally:
@@ -515,14 +540,19 @@ class PickerScreen(ModalScreen[tuple[str, int] | None]):
         if self._status_message:
             self._notify(self._status_message)
 
+    def _is_current(self, bank: PickerBank) -> bool:
+        """Whether ``bank`` is the one whose slots are shown."""
+        return (
+            bank.bank_id == self._current_bank
+            and bank.kind == self._current_kind
+        )
+
     def _filter_banks(self) -> None:
         if not self._kinds:
             self._filtered_banks = self._all_banks
             return
         self._filtered_banks = [
-            (bid, label, count)
-            for bid, label, count in self._all_banks
-            if any(bid.startswith(f"{kind}:") for kind in self._kinds)
+            bank for bank in self._all_banks if bank.kind in self._kinds
         ]
 
     def _populate_bank_table(self) -> None:
@@ -530,9 +560,11 @@ class PickerScreen(ModalScreen[tuple[str, int] | None]):
             return
         self._bank_table.clear()
         self._bank_row_keys = []
-        for bid, label, count in self._filtered_banks:
-            marker = "<- " if bid == self._current_bank else ""
-            row_key = self._bank_table.add_row(f"{marker}{label}", str(count))
+        for bank in self._filtered_banks:
+            marker = "<- " if self._is_current(bank) else ""
+            row_key = self._bank_table.add_row(
+                f"{marker}{bank.label}", str(bank.count)
+            )
             self._bank_row_keys.append(row_key)
 
     def _populate_slot_table(self) -> None:
@@ -540,27 +572,33 @@ class PickerScreen(ModalScreen[tuple[str, int] | None]):
             return
         self._slot_table.clear()
         self._slot_row_keys = []
-        for bid, _, count in self._filtered_banks:
-            if bid == self._current_bank:
-                for n in range(1, count + 1):
-                    marker = ">" if n == self._current_slot else " "
-                    row_key = self._slot_table.add_row(
-                        f"{marker}{n:03d}", "", key=f"{bid}:{n:03d}"
-                    )
-                    self._slot_row_keys.append(row_key)
-                break
+        for bank in self._filtered_banks:
+            if not self._is_current(bank):
+                continue
+            for n in range(1, bank.count + 1):
+                marker = ">" if n == self._current_slot else " "
+                row_key = self._slot_table.add_row(
+                    f"{marker}{n:03d}",
+                    "",
+                    key=make_key(bank.bank_id, n, bank.kind),
+                )
+                self._slot_row_keys.append(row_key)
+            break
 
-    def _slot(self, row_key: str) -> tuple[str, int] | None:
-        """Parse a ``BANK:NNN`` row key into (bank_id, slot_number).
+    def _slot(self, row_key: str) -> tuple[str, str, int] | None:
+        """Parse a catalog key into ``(bank_id, kind, number)``.
 
-        Bank IDs can contain colons (e.g., "u:1"), so we split from the right.
+        Delegates to :func:`catalog.split_key` -- there is one key
+        grammar, not two -- and refuses a key with no bank id or one
+        that does not parse.
         """
-        if ":" not in row_key:
+        try:
+            bank_id, kind, number = split_key(row_key)
+        except ValueError:
             return None
-        bank_id, number = row_key.rsplit(":", 1)
-        if not bank_id or not number.isdigit():
+        if not bank_id:
             return None
-        return bank_id, int(number)
+        return bank_id, kind, number
 
     def on_data_table_row_highlighted(
         self,
@@ -572,10 +610,11 @@ class PickerScreen(ModalScreen[tuple[str, int] | None]):
         if table.id == "picker-banks":
             row_idx = table.cursor_row
             if 0 <= row_idx < len(self._filtered_banks):
-                bid, _, _ = self._filtered_banks[row_idx]
-                if bid == self._current_bank:
+                bank = self._filtered_banks[row_idx]
+                if self._is_current(bank):
                     return
-                self._current_bank = bid
+                self._current_bank = bank.bank_id
+                self._current_kind = bank.kind
                 self._current_slot = 1
                 self._populate_bank_table()
                 self._populate_slot_table()
@@ -586,7 +625,11 @@ class PickerScreen(ModalScreen[tuple[str, int] | None]):
                 row_key = str(row_key_obj.value)
                 parsed = self._slot(row_key)
                 if parsed:
-                    self._current_bank, self._current_slot = parsed
+                    (
+                        self._current_bank,
+                        self._current_kind,
+                        self._current_slot,
+                    ) = parsed
 
     def action_prev_bank(self) -> None:
         if not self._bank_table or not self._filtered_banks:
@@ -594,8 +637,8 @@ class PickerScreen(ModalScreen[tuple[str, int] | None]):
         idx = self._bank_table.cursor_row
         if idx > 0:
             self._bank_table.move_cursor(row=idx - 1)
-            bid, _, _ = self._filtered_banks[idx - 1]
-            self._current_bank = bid
+            bank = self._filtered_banks[idx - 1]
+            self._current_bank, self._current_kind = bank.bank_id, bank.kind
             self._current_slot = 1
             self._populate_bank_table()
             self._populate_slot_table()
@@ -606,14 +649,16 @@ class PickerScreen(ModalScreen[tuple[str, int] | None]):
         idx = self._bank_table.cursor_row
         if idx < len(self._filtered_banks) - 1:
             self._bank_table.move_cursor(row=idx + 1)
-            bid, _, _ = self._filtered_banks[idx + 1]
-            self._current_bank = bid
+            bank = self._filtered_banks[idx + 1]
+            self._current_bank, self._current_kind = bank.bank_id, bank.kind
             self._current_slot = 1
             self._populate_bank_table()
             self._populate_slot_table()
 
     def action_confirm(self) -> None:
-        self.dismiss((self._current_bank, self._current_slot))
+        self.dismiss(
+            (self._current_bank, self._current_slot, self._current_kind)
+        )
 
     def action_cancel(self) -> None:
         self.dismiss(None)

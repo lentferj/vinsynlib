@@ -325,6 +325,8 @@ def load(path: str | None = None) -> Catalog:
     entries: list[Entry] = []
     skipped = 0
     banks: Any = payload.get("banks", {})
+    if not isinstance(banks, dict):
+        raise ValueError(f"{path} is not a catalog")
     for bank_id, rows in banks.items():
         if not isinstance(rows, list):
             skipped += 1
