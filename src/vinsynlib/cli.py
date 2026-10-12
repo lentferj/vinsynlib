@@ -28,15 +28,10 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
-from importlib.metadata import (
-    PackageNotFoundError,
-)
-from importlib.metadata import (
-    version as _dist_version,
-)
 from typing import Any
 
 from . import spec
+from .build import version_of
 from .config import MAX_DEVICE_ID, MAX_MIDI_CHANNEL, MIDI_CHANNELS
 
 __all__ = [
@@ -101,16 +96,12 @@ def make_parser(
 def _version_of(distribution: str) -> str | None:
     """The installed version of ``distribution``, or ``None``.
 
-    By name rather than by importing something: every tool in this family
-    installs a distribution named exactly what the command is called, and a
-    console script can be run from a virtualenv in which the package is not
-    importable yet. ``PackageNotFoundError`` is not an error here -- a
-    checkout that was never installed is a normal way to run these.
+    One implementation, in :mod:`vinsynlib.build`, because a help screen
+    naming a build must not be able to disagree with the command line
+    about which version is installed. Kept here so the command line's
+    callers and tests keep the name they use.
     """
-    try:
-        return _dist_version(distribution)
-    except PackageNotFoundError:
-        return None
+    return version_of(distribution)
 
 
 def add_common_arguments(

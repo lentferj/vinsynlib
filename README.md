@@ -55,12 +55,14 @@ vinsynlib/
   catalog.py       printed names, plus what has been read off the unit
   livenames.py     names read off the unit, kept between runs
   render.py        table and progress rendering, without Textual
+  build.py         which build is running: version, commit, tag
   undo.py          the undo log: inspectable records, no threads or locks
   ui/hints.py      the legend widget
   ui/browser.py    BrowserApp, the AppProtocol implementation
   ui/protocol.py   the App contract screens depend on
   ui/work.py       worker infrastructure: busy gate, error set, idle-close
   ui/confirm.py    a generic yes/no confirmation modal
+  ui/report.py     a scrollable block of text, as a modal
   ui/prompt.py     a one-line modal text prompt
   ui/modals.py     the shared modal screens: picker, search, report, rating
 ```
