@@ -106,6 +106,35 @@ def test_a_worktrees_git_file_points_at_the_repository(tmp_path: Path) -> None:
     assert build.commit == COMMIT
 
 
+def test_a_worktree_finds_the_tags_its_repository_holds(
+    tmp_path: Path,
+) -> None:
+    """A linked worktree keeps its own ``HEAD`` and shares the refs.
+
+    Real layout: the ``.git`` file names a per-worktree directory, which
+    holds ``HEAD`` and a ``commondir`` file pointing back at the
+    repository that holds ``refs/`` and ``packed-refs``. Stopping at the
+    worktree finds an empty ``refs`` and calls a tag that exists
+    unproved -- which is what happened the first time, against a real
+    ``git worktree`` of this repository.
+    """
+    real = _repo(tmp_path / "main")
+    _ref(real, "refs/heads/main", COMMIT)
+    _ref(real, "refs/tags/v0.4.1", COMMIT)
+    per_worktree = real / "worktrees" / "linked"
+    per_worktree.mkdir(parents=True)
+    (per_worktree / "HEAD").write_text(
+        "ref: refs/heads/main\n", encoding="utf-8"
+    )
+    (per_worktree / "commondir").write_text("../..\n", encoding="utf-8")
+    linked = tmp_path / "linked"
+    linked.mkdir()
+    (linked / ".git").write_text(f"gitdir: {per_worktree}\n", encoding="utf-8")
+    build = build_of("nothing-installed", origin=str(linked / "a.py"))
+    assert build.commit == COMMIT
+    assert build.tag == "refs/tags/v0.4.1"
+
+
 def test_no_git_anywhere_means_no_commit(tmp_path: Path) -> None:
     """A wheel lands in site-packages, where there is no repository."""
     (tmp_path / "site-packages").mkdir()

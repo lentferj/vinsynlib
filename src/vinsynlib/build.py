@@ -181,11 +181,12 @@ def _commit_of(git_dir: Path) -> str | None:
 
 def _resolve_ref(git_dir: Path, ref: str) -> str | None:
     """The sha ``ref`` names, from a loose ref or from ``packed-refs``."""
-    loose = git_dir / ref
+    refs = _refs_dir(git_dir)
+    loose = refs / ref
     if loose.is_file():
         value = loose.read_text(encoding="utf-8", errors="replace").strip()
         return value or None
-    packed = git_dir / "packed-refs"
+    packed = refs / "packed-refs"
     if packed.is_file():
         for line in packed.read_text(
             encoding="utf-8", errors="replace"
@@ -196,6 +197,22 @@ def _resolve_ref(git_dir: Path, ref: str) -> str | None:
             if name.strip() == ref:
                 return sha
     return None
+
+
+def _refs_dir(git_dir: Path) -> Path:
+    """Where the refs live: this directory, or the common one it names.
+
+    A linked worktree keeps its own ``HEAD`` where it sits and its refs
+    in the repository, named by a ``commondir`` file. Stopping at the
+    worktree would find an empty ``refs`` and call a tag unproved when
+    it is one file away.
+    """
+    pointer = git_dir / "commondir"
+    if pointer.is_file():
+        target = pointer.read_text(encoding="utf-8", errors="replace")
+        if target.strip():
+            return (git_dir / target.strip()).resolve()
+    return git_dir
 
 
 def _tag_of(git_dir: Path, commit: str | None) -> str | None:
@@ -219,7 +236,8 @@ def _tag_of(git_dir: Path, commit: str | None) -> str | None:
 def _tag_refs(git_dir: Path) -> list[tuple[str, str]]:
     """Every tag ref, as ``(sha, name)``, loose and packed."""
     found: list[tuple[str, str]] = []
-    tags = git_dir / "refs" / "tags"
+    refs = _refs_dir(git_dir)
+    tags = refs / "refs" / "tags"
     if tags.is_dir():
         for path in sorted(tags.rglob("*")):
             if path.is_file():
@@ -227,8 +245,8 @@ def _tag_refs(git_dir: Path) -> list[tuple[str, str]]:
                     encoding="utf-8", errors="replace"
                 ).strip()
                 if value:
-                    found.append((value, path.relative_to(git_dir).as_posix()))
-    packed = git_dir / "packed-refs"
+                    found.append((value, path.relative_to(refs).as_posix()))
+    packed = refs / "packed-refs"
     if packed.is_file():
         for line in packed.read_text(
             encoding="utf-8", errors="replace"
@@ -247,7 +265,7 @@ def _annotated_target(git_dir: Path, sha: str) -> str | None:
     ``None`` for a sha that is not a loose object at all -- which is
     what a packfile, or any other kind of object, looks like from here.
     """
-    obj = git_dir / "objects" / sha[:2] / sha[2:]
+    obj = _refs_dir(git_dir) / "objects" / sha[:2] / sha[2:]
     if not obj.is_file() or len(sha) < _LOOSE_OBJECT_MINIMUM:
         return None
     try:
