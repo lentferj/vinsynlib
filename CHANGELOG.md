@@ -16,6 +16,48 @@ CI goes red rather than after. Each such entry is marked **stricter**.
 The reasoning behind almost every entry lives in `TODO.md`, which records
 the 2026-10-09 code review the 0.3.0 work came from.
 
+## [0.4.1] — 2026-10-12
+
+Additive, and the default door is untouched: `undo()` and `undo_all()`
+keep their signatures, their sentences and their tests. What is added is a
+second door, for the tool whose undo work runs somewhere other than the
+thread that decided it -- which is the one the family's hardest case
+needed. Reasoning in `TODO.md` §2.6.
+
+- **A plan/execute seam (`undo.py`).** `UndoLog.plan(count)` says *which*
+  entries -- newest-first, `min(count, len)` clamped, gate-checked -- and
+  takes them off the log as it does; `settle(results)` reports a batch that
+  ran elsewhere, one sentence from the facts (applied, failures, refusal,
+  empty). Two doors, because the family has two failure modes and neither
+  is a bug to fix into the other: `undo()`/`undo_all()` keep
+  pop-only-after-success, right whenever undo means re-sending a value,
+  while `plan()`/`settle()` consume on take, right whenever a write the
+  unit refused must not be replayed by the next press. A tool whose
+  failure mode is a retry pushes back what failed; one whose is not does
+  nothing.
+- **Per-entry failure (`undo.py`).** `apply_hook` may now answer `False`
+  for "this entry failed": the batch carries on past it, the entry stays
+  on the log, and the number reported is the number that actually
+  applied. Raising still stops the batch and names the exception on
+  `last_error` -- a raise is the hook saying it could not try, a `False`
+  is it saying the unit refused, and a project gets to ask either.
+  **A hook returning a falsy value is now read as a failure where before
+  it was ignored**; a hook returning `None`, the documented contract, is
+  unaffected. `UndoLog` shipped in 0.4.0 with no consumers, so nothing in
+  the family changes behaviour today -- but a hook that was returning
+  `False` for "fine" should return `None`.
+- **Inspectability (`undo.py`).** `__iter__` (oldest first, so a history
+  screen can render the log without replaying it), `clear()`, and
+  `last_refusal`, so a tool can tell "the gate said no" from "the log was
+  empty" without consulting a gate it already owns.
+- **First consumer: p2ked**, on its own branch. Its undo spans two media
+  -- MIDI writes on a worker thread, and SQLite favourites writes with no
+  wire at all -- fails per entry, and consumes entries as it plans. One
+  log now holds all four kinds of change, the plan comes from the library,
+  and the app keeps its own words. The other three (rxved, eosed, s3ked)
+  are not converted yet: `TODO.md` §2.6.2 puts rxved first and s3ked
+  behind a note from a real instrument.
+
 ## [0.4.0] — 2026-10-11
 
 Library only, no consumers yet. Each item landed with tests and no

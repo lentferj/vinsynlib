@@ -222,6 +222,16 @@ a tool with no favourites database. They agree with each other instead:
 `r` refresh, `w` write gate, `z` undo, `Z` undo all, `h` history,
 `m` master menu, `?` help, `q` quit.
 
+**An undo is a write, and it is gated like one.** `--allow-write` says
+"start with the write gate armed", and pressing `z` puts the previous
+value back on the wire — so a tool whose gate is locked refuses `z` for
+the same reason it refuses an edit, and says so as a refusal rather than
+a plain status. The rule has lived in two status strings; it is a key's
+contract, so it belongs here. Not a choice is the neighbour of it: an
+undo never starts behind a write that is already in flight. The second
+keypress is refused as busy rather than queued, because the unit is one
+thing at a time.
+
 ### The legend
 
 The legend wraps rather than truncates: a footer that silently drops its

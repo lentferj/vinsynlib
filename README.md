@@ -105,11 +105,11 @@ unit or emulator **before** connecting irreplaceable equipment.
 ## Installing it, and who depends on it
 
 This is a library, not a program. It is published on PyPI — the current
-release is 0.4.0 — so the ordinary way to depend on it is a dependency
+release is 0.4.1 — so the ordinary way to depend on it is a dependency
 line:
 
 ```toml
-vinsynlib>=0.4.0
+vinsynlib>=0.4.1
 ```
 
 ```sh
