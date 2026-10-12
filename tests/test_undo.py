@@ -176,6 +176,146 @@ def test_empty_log_without_hook_is_still_empty_message() -> None:
     assert log.undo_all() == "nothing to undo"
 
 
+def test_a_false_verdict_fails_one_entry_and_the_batch_continues() -> None:
+    """``False`` is "this one failed", not "stop" -- and it is kept.
+
+    The entry stays on the log, because pop-only-after-success is what
+    leaves the log describing what is still applied; the batch carries
+    on past it; and the number reported is the number that applied.
+    """
+    applied: list[int] = []
+
+    def apply_hook(record: Record) -> bool | None:
+        if record.payload == 2:
+            return False
+        applied.append(record.payload)
+        return True
+
+    log = UndoLog(apply_hook=apply_hook)
+    log.push(Record("first", 1))
+    log.push(Record("second", 2))
+    log.push(Record("third", 3))
+    result = log.undo(count=3)
+    assert applied == [3, 1]
+    assert len(log) == 1
+    assert result == "undid 2; 1 failed"
+    assert log.last_error is None
+
+
+def test_a_batch_of_only_failures_reports_it_as_such() -> None:
+    def apply_hook(record: Record) -> bool | None:
+        return False
+
+    log = UndoLog(apply_hook=apply_hook)
+    log.push(Record("a", 1))
+    log.push(Record("b", 2))
+    assert log.undo() == "undo failed: 1"
+    assert len(log) == 2, "a refusal leaves the entry describing reality"
+    assert log.undo_all() == "undo failed: 2"
+    assert len(log) == 2
+
+
+def test_plan_and_settle_reverse_newest_first_clamp_and_consume() -> None:
+    """The plan/execute seam: taken off the log before the work runs.
+
+    Consume-on-take is the whole point -- the log is already empty the
+    moment the plan is handed over, so a half-failed batch cannot be
+    replayed by the next press and a live count cannot lie.
+    """
+    log = UndoLog()
+    for payload in (1, 2, 3):
+        log.push(Record(f"r{payload}", payload))
+    plan = log.plan(5)
+    assert [record.payload for record in plan] == [3, 2, 1]
+    assert len(log) == 0
+    assert log.settle([True, False, True]) == "undid 2; 1 failed"
+    assert len(log) == 0, "a half-failed batch stays off the log"
+    assert log.plan(1) == []
+    assert log.settle([]) == "nothing to undo"
+
+
+def test_a_settled_failure_is_not_an_empty_log() -> None:
+    log = UndoLog()
+    log.push(Record("a", 1))
+    assert log.plan(1) == [Record("a", 1)]
+    assert log.settle([False]) == "undo failed: 1"
+    assert log.settle([]) == "nothing to undo"
+
+
+def test_the_gate_refuses_a_plan_without_touching_the_log() -> None:
+    log = UndoLog(gate_hook=lambda: "locked")
+    log.push(Record("a", 1))
+    assert log.plan(1) == []
+    assert log.last_refusal == "locked"
+    assert len(log) == 1
+    assert log.settle([]) == "refused: locked"
+    assert log.undo() == "refused: locked"
+    assert log.last_refusal == "locked"
+
+
+def test_a_mixed_kind_log_reverses_in_true_lifo_order() -> None:
+    """One timeline: the newest entry goes first whatever kind it is.
+
+    Dispatch was already possible through the apply hook -- the hook is
+    handed the record and decides from its payload -- and this pins the
+    other half: the order is the log's, not the kind's.
+    """
+    order: list[str] = []
+
+    def apply_hook(record: Record) -> None:
+        order.append(record.label)
+
+    log = UndoLog(apply_hook=apply_hook)
+    log.push(Record("edit", "e1"))
+    log.push(Record("favourite", "f1"))
+    log.push(Record("rating", "r1"))
+    log.undo(count=3)
+    assert order == ["rating", "favourite", "edit"]
+
+
+def test_the_log_is_inspectable_without_being_replayed() -> None:
+    log = UndoLog()
+    log.push(Record("a", 1))
+    log.push(Record("b", 2))
+    assert [record.label for record in log] == ["a", "b"]
+    assert len(log) == 2
+    log.clear()
+    assert list(log) == []
+
+
+def test_the_simple_synchronous_path_is_unchanged() -> None:
+    """The default door's whole contract, pinned in one place.
+
+    The plan/settle door is an addition; this is the guard that the
+    published synchronous path did not move with it.
+    """
+    messages: list[str] = []
+    applied: list[int] = []
+
+    def apply_hook(record: Record) -> None:
+        applied.append(record.payload)
+
+    def status_hook(message: str) -> None:
+        messages.append(message)
+
+    log = UndoLog(apply_hook=apply_hook, status_hook=status_hook)
+    assert log.undo() == "nothing to undo"
+    log.push(Record("a", 1))
+    log.push(Record("b", 2))
+    assert log.undo() == "undid 1"
+    assert applied == [2]
+    assert len(log) == 1
+    assert log.undo_all() == "undid 1"
+    assert len(log) == 0
+    assert log.undo_all() == "nothing to undo"
+    assert messages == [
+        "nothing to undo",
+        "undid 1",
+        "undid 1",
+        "nothing to undo",
+    ]
+
+
 def test_failure_message_is_emitted_and_named() -> None:
     messages: list[str] = []
 
