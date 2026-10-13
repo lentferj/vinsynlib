@@ -16,6 +16,81 @@ CI goes red rather than after. Each such entry is marked **stricter**.
 The reasoning behind almost every entry lives in `TODO.md`, which records
 the 2026-10-09 code review the 0.3.0 work came from.
 
+## [0.4.2] — 2026-10-13
+
+Additive, and the two halves land together because each is half of the
+same answer to "which build is this, and can I read it?" — the frame a
+tool fills with its own words, and the line that names the build under
+them. Reasoning in `docs/unify2.md` §3.2.
+
+- **One frame for the family's nine copies (`ui/report.py`).**
+  `ReportScreen(ModalScreen[None])`, a `(title, body)` signature,
+  escape and q to close, a `DEFAULT_CSS` that is the geometry the family
+  already wrote. The words are the tool's own and are passed in; the
+  library supplies the box. The divergences are all subclasses, not
+  parameters — an extra `enter` (rxved), a `footer` argument and ids
+  (s3ked), a narrower box with a hidden `q` (eosed) — because Textual
+  already resolves the three things those subclasses need: it merges
+  `BINDINGS` per key with the most derived class winning, it merges
+  `DEFAULT_CSS` down the MRO, and a `compose` override replaces the
+  inside wholesale. A parameter for each one would be a bag of switches
+  the library would spend the rest of its life interpreting. Both
+  subclasses are tests (`tests/test_report.py:103`, `:120`), so a frame
+  that stops being able to express them fails loudly.
+
+- **The body scrolls (`ui/report.py`).** The one thing in the frame that
+  is not cosmetic: a `Static` with `overflow-y: auto` does not scroll in
+  Textual, which is what all eight family copies put on their body, so a
+  long help was clipped to its first screenful in every one of them.
+  The body lives in a `VerticalScroll` now, and `test_report.py` fails if
+  it ever stops being one.
+
+- **The two `ReportScreen`s are named (`ui/report.py:47-52`).** The frame
+  is not `vinsynlib.ui.modals.ReportScreen`, the library's own result
+  modal — a `(title, lines)` screen a tool *composes*, with `enter`
+  closing it and no box. They share the name because both answer to it
+  and share nothing else; the docstring draws the boundary, because
+  otherwise two same-named public classes in one package is a trap for
+  the next reader.
+
+- **Which build is running (`build.py`).** `build_of(distribution,
+  origin=None)` answers per distribution, in one place: a repo-loaded
+  `Build(version, commit, tag)`, `version_of`, and nothing else that
+  shells out. Stdlib only — no git, no subprocess, no network, and no
+  invented value: a value that cannot be proved stays `None`. The lookup
+  tries the installed version, then PEP 610's `direct_url.json`, then a
+  path inside the checkout (`_commit_for`, `:104`) — loose ref,
+  packed-ref, and the tagged-object unwrap that answers a linked
+  worktree, whose HEAD sits in the worktree and whose refs are one
+  `commondir` away (`_refs_dir`, `:202`). The `file:` URL is converted
+  the platform's way (`_path_of_file_url`), because a URI's path is not a
+  filesystem path: a drive letter arrives with a slash in front of it,
+  and only one of the three platforms reads that slash as harmless.
+
+- **The answer is tiered, because the truth is (`build.py`).** A checkout
+  can prove a commit, so it says one, and the tag that points at it when
+  there is one. A release cannot — a wheel is built from an sdist with
+  no `.git` in it — so it says its version, which is the identity the
+  family tags, and `0.4.2` resolves to exactly one commit here. A build
+  that proves neither says so, in words that read as an answer rather
+  than a truncation. Three tiers, all in `tests/test_build.py`.
+
+- **One version implementation (`cli.py`).** `_version_of` delegates to
+  `build.version_of` rather than forking it. Same answer, one
+  implementation, so a help screen naming a build cannot drift from the
+  command line about which version is installed. The name stays where
+  the command line's callers expect it.
+
+- **One consumer: p2ked**, on its own branch `report-from-library`, which
+  is not part of this release. Its `_help` now names both components —
+  this tool and the library under it — built from `build_of`, so a
+  support question starting with "which version?" does not need a trip
+  through a git CLI. The other eight copies stay exactly where they
+  are; retiring them is the follow-up the family now has (emorphed
+  `app.py:118`, ensqsqed `app.py:114`, kwsed `app.py:132`, nanosyned
+  `app.py:113`, x5ded `app.py:110`, rxved `screens.py:233`, s3ked
+  `app.py:493`, eosed `app.py:317`).
+
 ## [0.4.1] — 2026-10-12
 
 Additive, and the default door is untouched: `undo()` and `undo_all()`
