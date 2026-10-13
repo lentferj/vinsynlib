@@ -29,7 +29,8 @@ from pathlib import Path
 
 import pytest
 
-from vinsynlib.build import Build, build_of, version_of
+from vinsynlib import build as vbuild_build
+from vinsynlib.build import Build, _path_of_file_url, build_of, version_of
 
 #: A commit that is a valid object name and nothing else.
 COMMIT = "0" * 40
@@ -235,6 +236,62 @@ def test_a_local_install_names_the_checkout(
     monkeypatch.syspath_prepend(str(tmp_path))
     build = build_of("x")
     assert build.version == "0.1.0"
+    assert build.commit == COMMIT
+
+
+def test_a_file_urls_path_is_a_uri_path_not_a_filesystem_path() -> None:
+    """The conversion, as a pure function, because the shape is per-platform.
+
+    This is the only part of the second lead that differs between Windows
+    and POSIX, so it is tested where it cannot be masked by the platform
+    the suite happens to run on: the lead's own Windows failure was
+    invisible on Linux, where the URL path already *is* a filesystem path.
+
+    A ``file:`` URI is a URI. On Windows the drive letter arrives with a
+    leading slash in front of it (``/C:/Users/…``), and a drive-less
+    ``Path`` of that resolves against whichever drive the process is on
+    instead of the one the URL names -- which is why the checkout was
+    never found there. The slash is the whole of the conversion on
+    Windows, and on POSIX the same code must change nothing, so the
+    leading slash survives and a ``//`` is never read as a drive letter.
+    """
+    assert _path_of_file_url("file:///C:/Users/rxved/app") == Path(
+        "C:/Users/rxved/app"
+    )
+    assert _path_of_file_url("file:///home/lentferj/app") == Path(
+        "/home/lentferj/app"
+    )
+    assert _path_of_file_url("file:///opt/opencode") == Path("/opt/opencode")
+    assert _path_of_file_url("file:////usr/share") == Path("//usr/share")
+
+
+def test_the_local_lead_uses_the_conversion_not_the_raw_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The lead must go through :func:`_path_of_file_url`, not its own copy.
+
+    Asserted by watching, so a drift between the lead and the conversion
+    fails here rather than as one browser on Windows reporting no commit.
+    """
+    seen: list[Path] = []
+    _ref(_repo(tmp_path), "refs/heads/main", COMMIT)
+    infos = tmp_path / "x-0.1.0.dist-info"
+    infos.mkdir()
+    (infos / "METADATA").write_text("Name: x\nVersion: 0.1.0\n", "utf-8")
+    (infos / "direct_url.json").write_text(
+        json.dumps({"url": tmp_path.as_uri()}), encoding="utf-8"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    real = vbuild_build._path_of_file_url
+
+    def converted(url: str) -> Path:
+        answer = real(url)
+        seen.append(answer)
+        return answer
+
+    monkeypatch.setattr(vbuild_build, "_path_of_file_url", converted)
+    build = build_of("x")
+    assert seen == [tmp_path.resolve()], "the lead never converted the URL"
     assert build.commit == COMMIT
 
 

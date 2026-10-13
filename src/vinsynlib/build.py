@@ -124,7 +124,7 @@ def _commit_for(
                 return commit, None
             url = metadata.get("url")
             if url and url.startswith("file:"):
-                found = _commit_in(Path(unquote(urlparse(url).path)))
+                found = _commit_in(_path_of_file_url(url))
                 if found:
                     return found
     if origin is not None:
@@ -143,6 +143,30 @@ def _commit_in(start: Path) -> tuple[str, Path] | None:
     if commit is None:
         return None
     return commit, git_dir
+
+
+def _path_of_file_url(url: str) -> Path:
+    """The path a ``file:`` URL names, as the local path it is.
+
+    The path component of a file URI is a *URI* path, not a filesystem
+    path, and the difference is where a drive letter sits: on Windows
+    it arrives as ``/C:/Users/...`` -- a drive with a leading slash in
+    front of it. :class:`~pathlib.Path` of that is drive-less and rooted
+    at ``/``, so it resolves against whichever drive the process happens
+    to be on rather than the one the URL names, and the checkout is
+    never found. Dropping that one slash is the whole of the conversion
+    on Windows, and on POSIX, where the path already is a filesystem
+    path, the same code is a no-op -- so the leading slash survives and
+    a ``//`` is never mistaken for a drive.
+    """
+    path = unquote(urlparse(url).path)
+    # A drive is a *character*, not a path level, so it shows up as
+    # ``/C:/…`` -- the slash is the URI's, not Windows'. A leading ``//``
+    # is not a drive letter, and ``path[1:2]`` on a short path is the
+    # empty string, which is not a letter.
+    if path[:1] == "/" and path[1:2].isalpha() and path[2:3] == ":":
+        return Path(path[1:])
+    return Path(path)
 
 
 def _git_dir(start: Path) -> Path | None:
