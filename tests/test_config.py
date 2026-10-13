@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import tomllib
 from typing import Any
 
@@ -231,7 +232,7 @@ def test_an_unwritable_path_is_survivable(tmp_path: Any) -> None:
 
 
 @pytest.mark.skipif(
-    os.name != "posix",
+    sys.platform.startswith(("win", "darwin")),
     reason="Windows has no POSIX mode bits: os.chmod there only toggles the "
     "read-only flag and a directory stays writable, so this would assert "
     "nothing. The platform-independent case is the test above.",
@@ -457,6 +458,14 @@ def test_the_write_leaves_no_temporary_behind(tmp_path: Any) -> None:
 # --- §3.7: one directory per tool --------------------------------------------
 
 
+@pytest.mark.skipif(
+    sys.platform.startswith(("win", "darwin")),
+    reason="config_dir branches on sys.platform, and Windows and macOS "
+    "have branches of their own -- %LOCALAPPDATA% and "
+    "~/Library/Application Support -- so this asserts a path this "
+    "platform is documented not to use. The platform-independent cases "
+    "are the tests around it.",
+)
 def test_config_dir_uses_xdg_config_home(
     tmp_path: Any, monkeypatch: Any
 ) -> None:
@@ -465,6 +474,14 @@ def test_config_dir_uses_xdg_config_home(
     assert config.config_dir("p2ked") == str(tmp_path / "xdg" / "p2ked")
 
 
+@pytest.mark.skipif(
+    sys.platform.startswith(("win", "darwin")),
+    reason="config_dir branches on sys.platform, and Windows and macOS "
+    "have branches of their own -- %LOCALAPPDATA% and "
+    "~/Library/Application Support -- so this asserts a path this "
+    "platform is documented not to use. The platform-independent cases "
+    "are the tests around it.",
+)
 def test_config_dir_falls_back_to_home_dot_config(
     tmp_path: Any, monkeypatch: Any
 ) -> None:
@@ -473,6 +490,14 @@ def test_config_dir_falls_back_to_home_dot_config(
     assert config.config_dir("rxved") == str(tmp_path / ".config" / "rxved")
 
 
+@pytest.mark.skipif(
+    sys.platform.startswith(("win", "darwin")),
+    reason="config_dir branches on sys.platform, and Windows and macOS "
+    "have branches of their own -- %LOCALAPPDATA% and "
+    "~/Library/Application Support -- so this asserts a path this "
+    "platform is documented not to use. The platform-independent cases "
+    "are the tests around it.",
+)
 def test_config_dir_ignores_a_relative_xdg_config_home(
     tmp_path: Any, monkeypatch: Any
 ) -> None:
@@ -492,6 +517,14 @@ def test_config_dir_refuses_names_that_are_not_plain(bad: str) -> None:
         config.config_dir(bad)
 
 
+@pytest.mark.skipif(
+    sys.platform.startswith(("win", "darwin")),
+    reason="config_dir branches on sys.platform, and Windows and macOS "
+    "have branches of their own -- %LOCALAPPDATA% and "
+    "~/Library/Application Support -- so this asserts a path this "
+    "platform is documented not to use. The platform-independent cases "
+    "are the tests around it.",
+)
 def test_default_config_path_is_per_tool(
     tmp_path: Any, monkeypatch: Any
 ) -> None:
@@ -501,6 +534,14 @@ def test_default_config_path_is_per_tool(
     )
 
 
+@pytest.mark.skipif(
+    sys.platform.startswith(("win", "darwin")),
+    reason="config_dir branches on sys.platform, and Windows and macOS "
+    "have branches of their own -- %LOCALAPPDATA% and "
+    "~/Library/Application Support -- so this asserts a path this "
+    "platform is documented not to use. The platform-independent cases "
+    "are the tests around it.",
+)
 def test_config_help_names_the_per_tool_default(
     tmp_path: Any, monkeypatch: Any
 ) -> None:
@@ -542,6 +583,14 @@ def test_migration_copies_a_legacy_file_into_the_tool_dir(
     assert legacy.exists()
 
 
+@pytest.mark.skipif(
+    sys.platform.startswith(("win", "darwin")),
+    reason="config_dir branches on sys.platform, and Windows and macOS "
+    "have branches of their own -- %LOCALAPPDATA% and "
+    "~/Library/Application Support -- so this asserts a path this "
+    "platform is documented not to use. The platform-independent cases "
+    "are the tests around it.",
+)
 def test_migration_also_takes_a_headerless_file(
     tmp_path: Any, monkeypatch: Any
 ) -> None:
