@@ -326,6 +326,28 @@ Notes for whoever does this:
 
 ## 4. Open, and not scheduled
 
+### 4.1 `ChoiceScreen` has two owners for row navigation — OPEN, 2026-11-01
+
+`src/vinsynlib/ui/modals.py:144` handles `up`/`down` in `ChoiceScreen.on_key`
+and moves the table cursor itself. The focused `DataTable` also handles the
+same keys. Textual dispatches both, so the table cursor and `ChoiceScreen`'s
+private `_current` drift apart: the `[x]` marker can stay on one row while the
+visible focus sits on another, and `enter` returns the marker's row rather
+than the row the user is looking at.
+
+Reproduced in a consumer's mode picker: starting on the second row, one `up`
+lands on the first row, then a second move jumps to row 0; pressing `enter`
+selects the wrong mode. The existing tests only call `dismiss(index)` directly
+and never press an arrow, which is why the regression repeatedly passed.
+
+Fix: let the `DataTable` own navigation. Remove the `up`/`down` handling from
+`ChoiceScreen.on_key`, focus the table in `on_mount`, update `_current` and the
+marker from `DataTable.RowHighlighted`, and add a test that presses
+`down`, `up`, and `enter` and asserts the cursor, `[x]`/`[ ]` cells, and
+returned index all agree. x5ded currently works around this with a local
+`x5ded/choices.py`; the shared screen should be fixed so siblings can drop
+their copies.
+
 - **`docs/unify2.md`** — the second unification: what is still copied across
   the family and should not be, with the evidence, the ranked list, the plan
   and the open decisions. It is the thing to read before starting any of the
