@@ -16,6 +16,23 @@ CI goes red rather than after. Each such entry is marked **stricter**.
 The reasoning behind almost every entry lives in `TODO.md`, which records
 the 2026-10-09 code review the 0.3.0 work came from.
 
+## [0.5.0] — 2026-11-01
+
+A fix release for the shared choice modal. The 0.x line still moves in
+minor steps, and this one is a consumer-visible behaviour fix rather than
+a new interface.
+
+- **`ChoiceScreen` has one navigation owner (`ui/modals.py`).** The
+  screen and its focused `DataTable` both handled `up`/`down`, so the
+  visible cursor and the private `_current` could disagree: the `[x]`
+  marker stayed on one row while the highlighted row moved, and `enter`
+  returned the marker's index rather than the row the user was looking
+  at. The screen's `on_key` handling is gone; the table owns the keys,
+  and `DataTable.RowHighlighted` now updates `_current` and the marker.
+  `on_mount` focuses the table. The regression test presses `down`, `up`,
+  and `enter` and asserts the cursor, marker cells, and returned index
+  agree. This is the shared screen x5ded worked around locally.
+
 ## [0.4.2] — 2026-10-13
 
 Additive, and the two halves land together because each is half of the

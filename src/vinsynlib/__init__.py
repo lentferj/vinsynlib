@@ -56,7 +56,7 @@ __all__ = [
     "terms",
 ]
 
-__version__ = "0.4.2"
+__version__ = "0.5.0"
 
 
 def _release_parts(version_string: str, width: int) -> tuple[int, ...] | None:
