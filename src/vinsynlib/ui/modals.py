@@ -90,9 +90,11 @@ class ReportScreen(ModalScreen[None]):
 class ChoiceScreen(ModalScreen[int | None]):
     """A modal list where the user picks one index.
 
-    The currently-selected item is marked with ``[x]``. ``enter`` confirms
-    with ``priority=True`` because a ``DataTable`` would otherwise consume it.
-    ``escape`` cancels and returns ``None``.
+    The currently-selected item is marked with ``[x]``. The focused
+    ``DataTable`` owns row navigation; ``_current`` follows the table's
+    highlighted row. ``enter`` confirms with ``priority=True`` because a
+    ``DataTable`` would otherwise consume it. ``escape`` cancels and
+    returns ``None``.
     """
 
     BINDINGS: ClassVar[list[Any]] = [
@@ -138,23 +140,18 @@ class ChoiceScreen(ModalScreen[int | None]):
     def on_mount(self) -> None:
         if self._table and self._choices:
             self._table.move_cursor(row=self._current)
+            self._table.focus()
         if self._status_message:
             self._notify(self._status_message)
 
-    def on_key(self, event: Any) -> None:
-        key = event.key if hasattr(event, "key") else ""
-        if key == "up" and self._current > 0:
-            self._current -= 1
-            if self._table:
-                self._table.move_cursor(row=self._current)
-                self._refresh_marker()
-            event.prevent_default()
-        elif key == "down" and self._current < len(self._choices) - 1:
-            self._current += 1
-            if self._table:
-                self._table.move_cursor(row=self._current)
-                self._refresh_marker()
-            event.prevent_default()
+    def on_data_table_row_highlighted(
+        self,
+        event: DataTable.RowHighlighted,
+    ) -> None:
+        if not self._table or event.data_table is not self._table:
+            return
+        self._current = event.cursor_row
+        self._refresh_marker()
 
     def action_confirm(self) -> None:
         if self._choices:

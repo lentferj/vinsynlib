@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 from textual.app import App, ComposeResult
+from textual.coordinate import Coordinate
 
 from vinsynlib.catalog import make_key, split_key
 from vinsynlib.ui.modals import (
@@ -159,6 +160,53 @@ async def test_choice_screen_enter_priority_over_datatable() -> None:
         await pilot.pause()
 
     assert results == [1]
+
+
+async def test_choice_screen_table_owns_navigation() -> None:
+    """The table cursor, markers and result must agree after arrow keys."""
+    screen = ChoiceScreen("Pick", ["a", "b", "c"], current=1)
+    results: list[Any] = []
+
+    def collect(result: Any) -> None:
+        results.append(result)
+
+    def markers() -> list[str]:
+        table = screen._table
+        assert table is not None
+        return [
+            str(table.get_cell_at(Coordinate(row, 0)))
+            for row in range(len(screen._choices))
+        ]
+
+    async with ModalApp().run_test() as pilot:
+        await pilot.app.push_screen(screen, callback=collect)
+        await pilot.pause()
+        table = screen._table
+        assert table is not None
+        assert (table.cursor_row, screen._current) == (1, 1)
+        assert markers() == ["[ ]", "[x]", "[ ]"]
+
+        await pilot.press("down")
+        await pilot.pause()
+        assert (table.cursor_row, screen._current) == (2, 2)
+        assert markers() == ["[ ]", "[ ]", "[x]"]
+
+        # Returning to the previous row must not leave the cursor one row
+        # beyond it, which is what the old on_key handler did.
+        await pilot.press("up")
+        await pilot.pause()
+        assert (table.cursor_row, screen._current) == (1, 1)
+        assert markers() == ["[ ]", "[x]", "[ ]"]
+
+        await pilot.press("up")
+        await pilot.pause()
+        assert (table.cursor_row, screen._current) == (0, 0)
+        assert markers() == ["[x]", "[ ]", "[ ]"]
+
+        await pilot.press("enter")
+        await pilot.pause()
+
+    assert results == [0]
 
 
 async def test_choice_screen_sends_status() -> None:
