@@ -16,11 +16,11 @@ CI goes red rather than after. Each such entry is marked **stricter**.
 The reasoning behind almost every entry lives in `TODO.md`, which records
 the 2026-10-09 code review the 0.3.0 work came from.
 
-## [0.5.0] — 2026-11-01
+## [0.4.3] — 2026-11-01
 
-A fix release for the shared choice modal. The 0.x line still moves in
-minor steps, and this one is a consumer-visible behaviour fix rather than
-a new interface.
+A fix release for the shared choice modal. The same code was briefly
+published as `0.5.0`; that number was too large for a patch, and `0.5.0`
+has been yanked. This is the release to use.
 
 - **`ChoiceScreen` has one navigation owner (`ui/modals.py`).** The
   screen and its focused `DataTable` both handled `up`/`down`, so the
