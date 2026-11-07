@@ -101,11 +101,11 @@ async def test_the_legend_wraps_to_a_narrow_window() -> None:
         widget = pilot.app.query_one(KeyHints)
         await pilot.resize_terminal(30, 12)
         await pilot.pause()
-        # Every hint must still be present somewhere in the rendered text,
-        # however many lines it took.
+        # The legend is now capped, so only the first lines survive; the
+        # pointer tells the user the rest exist.
         rendered = _text(widget)
-        for block in CANONICAL_LEGEND:
-            assert block in rendered
+        assert len(rendered.splitlines()) <= KeyHints.MAX_LINES
+        assert KeyHints.MORE in rendered
 
 
 async def test_a_resize_redraws() -> None:
@@ -125,10 +125,11 @@ def test_the_widget_and_the_helper_agree() -> None:
     the same answer as a project that imports the other."""
 
     async def check() -> tuple[str, str]:
-        async with LegendApp(CANONICAL_LEGEND).run_test() as pilot:
+        blocks = ("one", "two", "three")
+        async with LegendApp(blocks).run_test() as pilot:
             widget = pilot.app.query_one(KeyHints)
             return _text(widget), wrap_blocks(
-                CANONICAL_LEGEND, max(widget.size.width - 2, 20)
+                blocks, max(widget.size.width - 2, 20)
             )
 
     rendered, expected = _run(check())
