@@ -105,6 +105,13 @@ class KeyHints(Static):
         # line; trim once more so nothing can overflow the width.
         head = lines[max_lines - 1]
         head = head[: max(width - len(more) - 1, 0)]
+        # Cut back to the last complete hint: never show a partial hint.
+        # Drop the incomplete tail after the final separator. If there is
+        # no separator at all (a single hint wider than the line) there is
+        # nothing to cut back to, so keep the width-based slice.
+        pos = head.rfind(self._separator)
+        if pos != -1:
+            head = head[:pos]
         final = (head + " " + more)[:width]
         kept.append(final)
         self.update("\n".join(kept))
