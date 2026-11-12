@@ -16,6 +16,20 @@ CI goes red rather than after. Each such entry is marked **stricter**.
 The reasoning behind almost every entry lives in `TODO.md`, which records
 the 2026-10-09 code review the 0.3.0 work came from.
 
+## [0.4.4] — 2026-11-12
+
+A fix release for the shared legend. Uncapped, it wrapped to half the
+screen on a narrow terminal, and the first render could stand until a
+resize redrew it.
+
+- **The legend is capped at two lines (`ui/hints.py`).** `KeyHints` now
+  truncates at `MAX_LINES` — 2, a class attribute an app can override —
+  and the last line ends with an explicit pointer (`MORE`, `… ? for all
+  keys`) to the full list. A legend that already fits is rendered
+  unchanged. The cut lands on hint boundaries, so no partial hint is
+  ever shown, and no key is dropped silently: the pointer tells the user
+  where the rest live.
+
 ## [0.4.3] — 2026-11-01
 
 A fix release for the shared choice modal. The same code was briefly
